@@ -1,0 +1,6 @@
+# uat-kabul-testi paket ayarları — coderagent-mvp
+SENARYO_KAYNAGI: https://claude.ai/artifact/SPs6jZ3mRZ5ZFJcgYDNccV   # defter (claude.ai); Claude Code okuyamaz, kopyayı kullanıcı verir
+ORTAM: lokal                      # scripts/dev-relay.sh — prod yasak
+KAPSAM_ONCELIK: P1
+TARAYICILAR: []                   # yüzey buzz-cli; tarayıcı yok
+REPOLAR: { BE: . }
