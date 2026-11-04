@@ -50,10 +50,16 @@ type Buzz struct {
 }
 
 // GitHub is the GitHub Source (§5.8): it follows only the pull requests of Ticket branches.
-// Without a CLI it is off and pull requests are followed only through coder reports.
+// It reads either through the gh binary (CLI) or over HTTPS (APIURL); with neither it is
+// off and pull requests are followed only through coder reports.
 type GitHub struct {
 	// CLI is the path of the gh binary; it authenticates with GH_TOKEN from the environment.
 	CLI string `yaml:"cli"`
+	// APIURL is the REST API root for reading over HTTPS, https://api.github.com.
+	APIURL string `yaml:"api_url"`
+	// TokenEnv names the environment variable holding the token for APIURL. Without one
+	// only public repositories are readable, at 60 requests an hour.
+	TokenEnv string `yaml:"token_env"`
 	// SelfLogins are our own accounts (the coder's push account, the orchestrator's); what
 	// they write never becomes a Trigger (§5.8a).
 	SelfLogins []string      `yaml:"self_logins"`
@@ -163,12 +169,18 @@ func (c *Config) validate() (warnings []string, err error) {
 		fail("repos must list at least one repository")
 	}
 	switch {
-	case c.GitHub.CLI == "":
-		warnings = append(warnings, "github.cli is empty: pull requests are not polled, so PR comments, CI and merges do not reach Tickets")
+	case c.GitHub.CLI == "" && c.GitHub.APIURL == "":
+		warnings = append(warnings, "github.cli and github.api_url are empty: pull requests are not polled, so PR comments, CI and merges do not reach Tickets")
+	case c.GitHub.CLI != "" && c.GitHub.APIURL != "":
+		fail("github: set cli or api_url, not both")
+	case c.GitHub.APIURL != "" && !strings.HasPrefix(c.GitHub.APIURL, "https://"):
+		fail("github.api_url must be https://")
 	case c.GitHub.Poll < 30*time.Second:
 		fail("github.poll must be at least 30s")
 	case len(c.GitHub.SelfLogins) == 0:
 		fail("github.self_logins must list our own accounts, or their comments would come back as Input")
+	case c.GitHub.APIURL != "" && c.GitHub.TokenEnv == "" && c.GitHub.Poll < 5*time.Minute:
+		warnings = append(warnings, "github.api_url without token_env allows 60 requests an hour: a pull request costs about 4 per poll, so poll every 5m or more, or set a token")
 	}
 
 	seen := map[string]bool{}

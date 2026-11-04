@@ -92,8 +92,15 @@ func run(log *slog.Logger, configPath string) error {
 	// coder reports, and their comments, CI and merges do not reach Tickets.
 	var gh *github.Source
 	ghTick := make(<-chan time.Time)
-	if cfg.GitHub.CLI != "" {
-		gh = &github.Source{API: &github.CLI{Runner: github.Exec{Path: cfg.GitHub.CLI}}, DB: st.DB(), Repo: repo.GitHub, Now: time.Now}
+	if cfg.GitHub.CLI != "" || cfg.GitHub.APIURL != "" {
+		var api github.API = &github.CLI{Runner: github.Exec{Path: cfg.GitHub.CLI}}
+		if cfg.GitHub.APIURL != "" {
+			if cfg.GitHub.TokenEnv != "" && os.Getenv(cfg.GitHub.TokenEnv) == "" {
+				return fmt.Errorf("github.token_env names %s, which is not set", cfg.GitHub.TokenEnv)
+			}
+			api = &github.HTTP{BaseURL: cfg.GitHub.APIURL, Token: os.Getenv(cfg.GitHub.TokenEnv)}
+		}
+		gh = &github.Source{API: api, DB: st.DB(), Repo: repo.GitHub, Now: time.Now}
 		t := time.NewTicker(cfg.GitHub.Poll)
 		defer t.Stop()
 		ghTick = t.C

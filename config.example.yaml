@@ -16,8 +16,9 @@ buzz:
   channels: [coder-channel-id]      # dinlenen kanal id'leri (#coder) — biçimi A1 ölçümünde kesinleşir
   poll: 60s
 
-github:                             # §5.8 — yalnız Ticket dallarının PR'ları; token GH_TOKEN ortam değişkeninden
-  cli: /usr/local/bin/gh
+github:                             # §5.8 — yalnız Ticket dallarının PR'ları
+  api_url: https://api.github.com   # HTTPS ile okur (gh gerekmez); ya da cli: /usr/local/bin/gh
+  token_env: GH_TOKEN               # tokensız yalnız public repo, saatte 60 istek
   self_logins: [bhs-coder-bot]      # bizim hesaplar (coder push, orkestratör): yazdıkları Trigger olmaz
   poll: 60s
 

@@ -87,16 +87,31 @@ func TestGitHubValidation(t *testing.T) {
 	repo := `- {name: a, github: o/a, base: main, allowed_logins: [x]}`
 	off := strings.Replace(valid, "github: {cli: gh, self_logins: [bot]}\n", "", 1)
 	c, warnings, err := Parse([]byte(off + repo))
-	if err != nil || c.GitHub.CLI != "" || len(warnings) != 1 || !strings.Contains(warnings[0], "github.cli is empty") {
+	if err != nil || c.GitHub.CLI != "" || len(warnings) != 1 || !strings.Contains(warnings[0], "github.cli and github.api_url are empty") {
 		t.Errorf("github off: %v %v", warnings, err)
 	}
 	for _, c := range []struct{ github, wantErr string }{
 		{"github: {cli: gh}", "github.self_logins"},
 		{"github: {cli: gh, self_logins: [bot], poll: 10s}", "github.poll must be at least 30s"},
+		{"github: {cli: gh, api_url: \"https://api.github.com\", self_logins: [bot]}", "not both"},
+		{"github: {api_url: \"http://api.github.com\", self_logins: [bot]}", "must be https://"},
 	} {
 		bad := strings.Replace(valid, "github: {cli: gh, self_logins: [bot]}", c.github, 1)
 		if _, _, err := Parse([]byte(bad + repo)); err == nil || !strings.Contains(err.Error(), c.wantErr) {
 			t.Errorf("%s: err = %v", c.github, err)
 		}
+	}
+}
+
+func TestGitHubHTTPSWithoutTokenWarns(t *testing.T) {
+	repo := `- {name: a, github: o/a, base: main, allowed_logins: [x]}`
+	https := strings.Replace(valid, "github: {cli: gh, self_logins: [bot]}", `github: {api_url: "https://api.github.com", self_logins: [bot]}`, 1)
+	_, warnings, err := Parse([]byte(https + repo))
+	if err != nil || len(warnings) != 1 || !strings.Contains(warnings[0], "60 requests an hour") {
+		t.Errorf("no token: %v %v", warnings, err)
+	}
+	withToken := strings.Replace(https, "self_logins", "token_env: GH_TOKEN, self_logins", 1)
+	if _, warnings, err := Parse([]byte(withToken + repo)); err != nil || len(warnings) != 0 {
+		t.Errorf("token: %v %v", warnings, err)
 	}
 }

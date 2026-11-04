@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -235,4 +237,39 @@ type runner func([]string) ([]byte, []byte, int)
 func (r runner) Run(_ context.Context, args []string) ([]byte, []byte, int, error) {
 	o, e, c := r(args)
 	return o, e, c, nil
+}
+
+func TestHTTP(t *testing.T) {
+	var auth, version string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth, version = r.Header.Get("Authorization"), r.Header.Get("X-GitHub-Api-Version")
+		if r.URL.RequestURI() != "/repos/cli/cli/pulls/14804?x=1" {
+			w.WriteHeader(404)
+			w.Write([]byte(`{"message":"Not Found","status":"404"}`))
+			return
+		}
+		b, _ := os.ReadFile("testdata/pull.json")
+		w.Write(b)
+	}))
+	defer srv.Close()
+
+	h := &HTTP{BaseURL: srv.URL + "/", Token: "tok"}
+	raw, err := h.Get(ctx, "repos/cli/cli/pulls/14804?x=1")
+	var pr pull
+	if err != nil || json.Unmarshal(raw, &pr) != nil || pr.Number != 14804 {
+		t.Fatalf("get: %v", err)
+	}
+	if auth != "Bearer tok" || version != "2022-11-28" {
+		t.Errorf("headers: %q %q", auth, version)
+	}
+	_, err = (&HTTP{BaseURL: srv.URL}).Get(ctx, "repos/cli/cli/pulls/1")
+	var gh *Error
+	if !errors.As(err, &gh) || gh.Status != 404 || gh.Message != "Not Found" || auth != "" {
+		t.Fatalf("err = %v, auth = %q (no token, no header)", err, auth)
+	}
+	for _, p := range []string{"/etc/passwd", "https://evil/x", "-X"} {
+		if _, err := h.Get(ctx, p); err == nil {
+			t.Errorf("path %q must be refused", p)
+		}
+	}
 }
