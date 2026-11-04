@@ -1,4 +1,8 @@
-/bin/
+# bin/: yalnız deploy/Dockerfile'ın kopyaladığı ikililer repoda (BHS gibi; deploy/README.md)
+/bin/*
+!/bin/coderagent-linux-arm64
+!/bin/buzz
+!/bin/SHA256SUMS
 /dist/
 *.sqlite
 *.sqlite-*
@@ -15,3 +19,7 @@ deploy/dev/.env
 deploy/dev/work/
 # uat-kabul-testi: taslak sayfa JSON'dan üretilir (yeni-defter.mjs)
 uat/paketler/*/taslak/*.html
+
+# tasarım ve plan belgeleri yerelde kalır (public repoya girmez)
+/ANALIZ.md
+/PLAN.md
