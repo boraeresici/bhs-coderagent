@@ -5,7 +5,7 @@
 #   scripts/dev-relay.sh up              ortami baslatir, relay saglikli olana dek bekler
 #   scripts/dev-relay.sh seed            uyelikler + #coder kanali (bir kez)
 #   scripts/dev-relay.sh buzz <kim> ...  buzz CLI'yi bir kimlikle calistirir
-#                                        kim: human | orchestrator | coder
+#                                        kim: human | orchestrator | coder | outsider
 #   scripts/dev-relay.sh env             kanal ve pubkey'leri gosterir (gizli anahtarsiz)
 #   scripts/dev-relay.sh orchestrator    config uretir, orkestratoru baslatir (once: make build-arm64)
 #   scripts/dev-relay.sh logs            orkestratorun loglari
@@ -13,7 +13,8 @@
 #   scripts/dev-relay.sh down [-v]       durdurur (-v: verileri de siler)
 #
 # Kimlikler: human = relay owner ve test eden insan; orchestrator = bhs-coderagent;
-# coder = coder Hermes profilinin kimligi (Hermes olmadan elle konusturulur).
+# coder = coder Hermes profilinin kimligi (Hermes olmadan elle konusturulur);
+# outsider = relay uyesi ama #coder uyesi olmayan biri (UAT negatif kontrolleri).
 #
 # Not: macOS bash 3.2 ile calisir; metinler bu yuzden ASCII.
 set -euo pipefail
@@ -76,13 +77,25 @@ buzz_as() {
     human) key="$HUMAN_SECRET" ;;
     orchestrator) key="$ORCHESTRATOR_SECRET" ;;
     coder) key="$CODER_SECRET" ;;
-    *) echo "kim: human | orchestrator | coder" >&2; exit 1 ;;
+    outsider) key="${OUTSIDER_SECRET:?once: $0 seed}" ;;
+    *) echo "kim: human | orchestrator | coder | outsider" >&2; exit 1 ;;
   esac
   compose exec -T -e BUZZ_PRIVATE_KEY="$key" cli /b/buzz "$@"
 }
 
+# outsider: defterdeki tanim (coderagent-mvp env.kullanicilar) — relay uyesi, #coder uyesi DEGIL.
+# Sonradan eklendi; eski .env'lerde yoksa uretilir. Tekrar calistirmak zararsiz.
+ensure_outsider() {
+  if ! grep -q '^OUTSIDER_PUBKEY=' "$ENVF"; then
+    (umask 077; genkey OUTSIDER >> "$ENVF")
+    load
+  fi
+  compose exec -T relay buzz-admin add-member --pubkey "$OUTSIDER_PUBKEY" --role member
+}
+
 cmd_seed() {
   load
+  ensure_outsider
   if grep -q '^CHANNEL=' "$ENVF"; then echo "zaten seed edilmis: CHANNEL=$CHANNEL"; return; fi
   for who in ORCHESTRATOR CODER; do
     pub=$(eval echo "\$${who}_PUBKEY")
@@ -107,6 +120,7 @@ cmd_env() {
   echo "HUMAN_PUBKEY=$HUMAN_PUBKEY"
   echo "ORCHESTRATOR_PUBKEY=$ORCHESTRATOR_PUBKEY"
   echo "CODER_PUBKEY=$CODER_PUBKEY"
+  echo "OUTSIDER_PUBKEY=${OUTSIDER_PUBKEY:-<seed edilmedi>}"
 }
 
 # Orkestrator config'i: yalniz acik anahtarlar; gizli anahtar ortam degiskeninden gelir.
