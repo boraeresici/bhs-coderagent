@@ -24,7 +24,8 @@ func (r ThreadRef) Key() string { return r.Source + ":" + r.ID }
 
 // ChannelRef is a write-only address on a thread; the address format belongs to the Source.
 type ChannelRef struct {
-	Source  string            `json:"source"`
+	Source string `json:"source"`
+	// Thread is the thread's key (ThreadRef.Key), which the outbox uses as the conversation.
 	Thread  string            `json:"thread"`
 	Address map[string]string `json:"address"`
 }
