@@ -118,14 +118,19 @@ func (c *CLI) Send(ctx context.Context, p SendParams) (json.RawMessage, error) {
 	return c.run(ctx, args, []byte(p.Content))
 }
 
-// Messages lists a channel's messages after since (unix seconds; 0 for no bound).
-func (c *CLI) Messages(ctx context.Context, channel string, since int64, limit int) (json.RawMessage, error) {
+// Messages lists a channel's kind:9 messages with since <= created_at <= before (unix
+// seconds; 0 leaves a bound open). The relay returns the newest limit of them in
+// ascending order (ANALIZ.md §9.1), so a full page means older ones may remain.
+func (c *CLI) Messages(ctx context.Context, channel string, since, before int64, limit int) (json.RawMessage, error) {
 	if err := check("channel", channel, uuidRE); err != nil {
 		return nil, err
 	}
 	args := []string{"messages", "get", "--channel", channel, "--limit", strconv.Itoa(limit)}
 	if since > 0 {
 		args = append(args, "--since", strconv.FormatInt(since, 10))
+	}
+	if before > 0 {
+		args = append(args, "--before", strconv.FormatInt(before, 10))
 	}
 	return c.run(ctx, args, nil)
 }

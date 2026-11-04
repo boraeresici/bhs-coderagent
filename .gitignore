@@ -9,3 +9,7 @@
 # uat-kabul-testi: defter kopyası local modda repoya girmez (ANALIZ §5.12)
 uat/paketler/*/source/
 .auth/
+
+# yerel geliştirme ortamı (scripts/dev-relay.sh)
+deploy/dev/.env
+deploy/dev/work/

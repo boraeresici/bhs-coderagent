@@ -1,0 +1,143 @@
+# Yerel Buzz relay — geliştirme ve ölçüm (PLAN.md F0.1, F3.7). Üretim DEĞİL.
+#
+# buzz-hermes-stack/reference/buzz-relay-compose.yml'den (Coolify snapshot) türetildi:
+# aynı imaj digest'i (BHS'deki bin/ ile aynı commit, buzz.ref=ac4fa13b), aynı bağımlılıklar.
+# Çıkarılanlar: pairrelay (mobil eşleştirme), Coolify'a özgü SERVICE_FQDN, minio-init.
+#
+# Kullanım: scripts/dev-relay.sh (init → up → seed). Sırlar ./.env'de (gitignore'lu).
+
+name: coderagent-dev
+
+x-buzz-image: &buzz-image ghcr.io/block/buzz@sha256:510978bb0bc168cd69af55ea46a307bfc935268939f6df844623344999fde7ef
+
+services:
+  relay:
+    image: *buzz-image
+    environment:
+      BUZZ_BIND_ADDR: 0.0.0.0:3000
+      BUZZ_HEALTH_PORT: "8080"
+      BUZZ_METRICS_PORT: "9102"
+      DATABASE_URL: postgres://buzz:${POSTGRES_PASSWORD:?run scripts/dev-relay.sh init}@postgres:5432/buzz
+      REDIS_URL: redis://:${REDIS_PASSWORD:?}@redis:6379
+      BUZZ_S3_ENDPOINT: http://minio:9000
+      BUZZ_S3_ACCESS_KEY: ${S3_ACCESS_KEY:?}
+      BUZZ_S3_SECRET_KEY: ${S3_SECRET_KEY:?}
+      BUZZ_S3_BUCKET: buzz-media
+      BUZZ_GIT_REPO_PATH: /data/git
+      BUZZ_AUTO_MIGRATE: "true"
+      BUZZ_GIT_CONFORMANCE_PROBE: "false"
+      RELAY_URL: ws://relay:3000
+      BUZZ_MEDIA_BASE_URL: http://relay:3000/media
+      BUZZ_MEDIA_SERVER_DOMAIN: relay
+      BUZZ_CORS_ORIGINS: http://localhost:3000
+      BUZZ_REQUIRE_AUTH_TOKEN: "true"
+      BUZZ_REQUIRE_RELAY_MEMBERSHIP: "true"
+      BUZZ_ALLOW_NIP_OA_AUTH: "true"
+      RELAY_OWNER_PUBKEY: ${OWNER_PUBKEY:?}
+      BUZZ_RELAY_PRIVATE_KEY: ${RELAY_SECRET:?}
+      BUZZ_GIT_HOOK_HMAC_SECRET: ${GIT_HMAC:?}
+      RUST_LOG: buzz_relay=info,buzz_auth=info
+    ports:
+      - "127.0.0.1:3000:3000"   # yalnız bu makineden
+    volumes:
+      - git:/data/git
+    depends_on:
+      git-init: { condition: service_completed_successfully }
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/8080; printf \"GET /_readiness HTTP/1.1\\r\\nHost: x\\r\\nConnection: close\\r\\n\\r\\n\" >&3; grep -q \"200 OK\" <&3'"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+      start_period: 20s
+
+  # buzz CLI'yi (BHS'de pinli linux/arm64 ikili) kimlik başına çalıştırmak için.
+  # scripts/dev-relay.sh buzz <kimlik> … bunu `docker compose exec -e BUZZ_PRIVATE_KEY` ile kullanır.
+  cli:
+    image: debian:bookworm-slim
+    # buzz'ın HTTP istemcisi (rustls) sistem CA deposu olmadan kurulamıyor: "builder error".
+    command: ["sh", "-c", "apt-get update -qq && apt-get install -y -qq ca-certificates >/dev/null && exec sleep infinity"]
+    healthcheck:
+      test: ["CMD", "test", "-s", "/etc/ssl/certs/ca-certificates.crt"]
+      interval: 3s
+      retries: 60
+    environment:
+      BUZZ_RELAY_URL: http://relay:3000
+    volumes:
+      - ${BHS_BIN:-../../../buzz-hermes-stack/bin}:/b:ro
+      - ./work:/work
+    depends_on:
+      relay: { condition: service_healthy }
+
+  # Orkestratörün kendisi (make build-arm64 → bin/coderagent-linux-arm64).
+  # scripts/dev-relay.sh orchestrator config'i üretir ve bunu başlatır.
+  coderagent:
+    profiles: [orchestrator]
+    image: debian:bookworm-slim
+    command: ["sh", "-c", "apt-get update -qq && apt-get install -y -qq ca-certificates >/dev/null && exec /app/coderagent-linux-arm64 -config /work/config.yaml"]
+    environment:
+      BUZZ_PRIVATE_KEY: ${ORCHESTRATOR_SECRET:?}
+      BUZZ_RELAY_URL: http://relay:3000
+      CODERAGENT_API_TOKEN: dev
+    volumes:
+      - ../../bin:/app:ro
+      - ${BHS_BIN:-../../../buzz-hermes-stack/bin}:/b:ro
+      - ./work:/work:ro
+      - state:/state
+    depends_on:
+      relay: { condition: service_healthy }
+
+  git-init:
+    image: busybox:1.37
+    command: ["sh", "-c", "chown -R 1000:1000 /data/git && chmod 0755 /data/git"]
+    volumes:
+      - git:/data/git
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: buzz
+      POSTGRES_USER: buzz
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U buzz -d buzz"]
+      interval: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:?}"]
+    volumes:
+      - redis:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 3s
+      retries: 20
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?}
+
+  # Üretimdeki minio/minio ve minio/mc sürümleri artık çekilemiyor (MinIO 2025'te imaj
+  # yayınını kısıtladı). Yerelde Bitnami'nin arşivlenmiş MinIO imajı; bucket'ı kendisi açar.
+  minio:
+    image: bitnamilegacy/minio:2025.7.23
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:?}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:?}
+      MINIO_DEFAULT_BUCKETS: buzz-media
+    volumes:
+      - minio:/bitnami/minio/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 3s
+      retries: 30
+
+volumes:
+  state:
+  git:
+  postgres:
+  redis:
+  minio:

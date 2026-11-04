@@ -74,8 +74,8 @@ func TestRejectsMalformedIDs(t *testing.T) {
 func TestReadArgs(t *testing.T) {
 	f := &fake{stdout: "[]"}
 	c := &CLI{Runner: f}
-	c.Messages(ctx, chanID, 1762250000, 50)
-	if got := strings.Join(f.args, " "); got != "--format json messages get --channel "+chanID+" --limit 50 --since 1762250000" {
+	c.Messages(ctx, chanID, 1762250000, 1762250099, 50)
+	if got := strings.Join(f.args, " "); got != "--format json messages get --channel "+chanID+" --limit 50 --since 1762250000 --before 1762250099" {
 		t.Errorf("messages args = %s", got)
 	}
 	c.Mentions(ctx, 0, 20)
@@ -105,7 +105,7 @@ func TestErrors(t *testing.T) {
 	}
 	for _, c := range cases {
 		cli := &CLI{Runner: &fake{code: c.code, stderr: c.stderr}}
-		_, err := cli.Messages(ctx, chanID, 0, 1)
+		_, err := cli.Messages(ctx, chanID, 0, 0, 1)
 		var e *Error
 		if !errors.As(err, &e) {
 			t.Fatalf("exit %d: err = %v", c.code, err)
@@ -115,7 +115,7 @@ func TestErrors(t *testing.T) {
 		}
 	}
 	cli := &CLI{Runner: &fake{stdout: "not json"}}
-	if _, err := cli.Messages(ctx, chanID, 0, 1); err == nil {
+	if _, err := cli.Messages(ctx, chanID, 0, 0, 1); err == nil {
 		t.Error("non-JSON stdout must be an error")
 	}
 }
