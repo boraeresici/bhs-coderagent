@@ -107,7 +107,7 @@ func run(log *slog.Logger, configPath string) error {
 	}
 	out := &sender{w: &buzz.Writer{Client: cli, Self: cfg.Buzz.SelfPubkey}, st: st, eng: eng, log: log}
 
-	handler, err := api.New(st, os.Getenv(cfg.API.TokenEnv))
+	handler, err := api.New(st, eng, os.Getenv(cfg.API.TokenEnv))
 	if err != nil {
 		return fmt.Errorf("%w: set %s", err, cfg.API.TokenEnv)
 	}

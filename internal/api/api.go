@@ -1,9 +1,11 @@
 // Package api is the orchestrator's HTTP API under /orchestrator/api/ (ANALIZ.md §5.9):
-// the BHS panel's Tickets page reads it. Every request needs the bearer token; the API is
-// not privileged beyond the orchestrator's own store.
+// the BHS panel's Tickets page reads it and acts through it (retry, stop, pause; F6.3).
+// Every request needs the bearer token; the API is not privileged beyond the
+// orchestrator's own store and engine.
 package api
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
@@ -12,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/boraeresici/bhs-coderagent/internal/engine"
 	"github.com/boraeresici/bhs-coderagent/internal/store"
 	"github.com/boraeresici/bhs-coderagent/internal/ticket"
 )
@@ -19,17 +22,29 @@ import (
 // Prefix is where the API is mounted.
 const Prefix = "/orchestrator/api/"
 
+// Actions are what a person may do from the panel; the engine provides them.
+type Actions interface {
+	Retry(ctx context.Context, ticketID string) error
+	Stop(ctx context.Context, ticketID string) error
+	SetPaused(ctx context.Context, paused bool) error
+	Paused(ctx context.Context) (bool, error)
+}
+
 // New returns the API handler. An empty token is refused: an API without one would let
-// anyone on the container network read every Ticket.
-func New(st *store.Store, token string) (http.Handler, error) {
+// anyone on the container network read every Ticket and stop them.
+func New(st *store.Store, act Actions, token string) (http.Handler, error) {
 	if token == "" {
 		return nil, errors.New("api: no bearer token")
 	}
 	mux := http.NewServeMux()
-	h := &handler{st: st}
+	h := &handler{st: st, act: act}
 	mux.HandleFunc("GET "+Prefix+"state", h.state)
 	mux.HandleFunc("GET "+Prefix+"tickets", h.tickets)
 	mux.HandleFunc("GET "+Prefix+"tickets/{id}", h.ticket)
+	mux.HandleFunc("POST "+Prefix+"tickets/{id}/retry", h.do(act.Retry))
+	mux.HandleFunc("POST "+Prefix+"tickets/{id}/stop", h.do(act.Stop))
+	mux.HandleFunc("POST "+Prefix+"pause", h.pause(true))
+	mux.HandleFunc("POST "+Prefix+"resume", h.pause(false))
 	return bearer(token, mux), nil
 }
 
@@ -45,7 +60,10 @@ func bearer(token string, next http.Handler) http.Handler {
 	})
 }
 
-type handler struct{ st *store.Store }
+type handler struct {
+	st  *store.Store
+	act Actions
+}
 
 // TicketView is a Ticket as the panel shows it: its derived stage and what a person
 // needs to act on, without its Inputs or untrusted message text.
@@ -106,7 +124,12 @@ func (h *handler) state(w http.ResponseWriter, r *http.Request) {
 			person++
 		}
 	}
-	writeJSON(w, map[string]any{"open": len(open), "needs_person": person, "stages": stages})
+	paused, err := h.act.Paused(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, map[string]any{"open": len(open), "needs_person": person, "stages": stages, "paused": paused})
 }
 
 // tickets lists open Tickets; filter=person keeps those waiting on a person, most urgent
@@ -151,6 +174,35 @@ func (h *handler) ticket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, view(t))
+}
+
+// do runs a Ticket action and answers with the Ticket as it is afterwards.
+func (h *handler) do(action func(context.Context, string) error) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		err := action(r.Context(), r.PathValue("id"))
+		switch {
+		case errors.Is(err, store.ErrNotFound):
+			writeError(w, http.StatusNotFound, "no such ticket")
+			return
+		case errors.Is(err, engine.ErrConflict):
+			writeError(w, http.StatusConflict, "the ticket's stage does not allow this")
+			return
+		case err != nil:
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		h.ticket(w, r)
+	}
+}
+
+func (h *handler) pause(paused bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := h.act.SetPaused(r.Context(), paused); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, map[string]bool{"paused": paused})
+	}
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

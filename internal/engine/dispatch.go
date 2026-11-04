@@ -65,6 +65,11 @@ func (e *Engine) Launch(ctx context.Context, ticketID, assignmentID string) erro
 			a.State, a.EndedAt, a.EndedReason = ticket.AssignmentEnded, &now, "ticket ended before launch"
 			return store.PutTicket(ctx, tx, t)
 		}
+		if v, _, err := store.GetKV(ctx, tx, pausedKey); err != nil {
+			return err
+		} else if v == "1" {
+			return &LaterError{Until: now.Add(busyWait), Reason: "launching is paused"}
+		}
 		busy, err := e.coderBusy(ctx, tx, ticketID)
 		if err != nil {
 			return err
