@@ -9,6 +9,7 @@
 #   scripts/dev-relay.sh env             kanal ve pubkey'leri gosterir (gizli anahtarsiz)
 #   scripts/dev-relay.sh orchestrator    config uretir, orkestratoru baslatir (once: make build-arm64)
 #   scripts/dev-relay.sh logs            orkestratorun loglari
+#   scripts/dev-relay.sh api <yol>       orkestrator API'si (or. state, tickets?filter=person)
 #   scripts/dev-relay.sh down [-v]       durdurur (-v: verileri de siler)
 #
 # Kimlikler: human = relay owner ve test eden insan; orchestrator = bhs-coderagent;
@@ -116,7 +117,7 @@ cmd_orchestrator() {
   cat > "$DEV/work/config.yaml" <<CFG
 # scripts/dev-relay.sh orchestrator tarafindan uretildi — yerel.
 state_dir: /state
-api: { listen: "127.0.0.1:3082", token_env: CODERAGENT_API_TOKEN }
+api: { listen: "0.0.0.0:3082", token_env: CODERAGENT_API_TOKEN }
 buzz:
   cli: /b/buzz
   self_pubkey: "$ORCHESTRATOR_PUBKEY"
@@ -138,6 +139,7 @@ case "${1:-}" in
   buzz) shift; load; buzz_as "$@" ;;
   env) cmd_env ;;
   orchestrator) cmd_orchestrator ;;
+  api) shift; curl -fsS -H "Authorization: Bearer dev" "http://127.0.0.1:3082/orchestrator/api/${1:-state}"; echo ;;
   logs) load; compose --profile orchestrator logs -f --no-log-prefix coderagent ;;
   down) shift; load; compose down "$@" ;;
   *) sed -n '2,15p' "$0"; exit 1 ;;

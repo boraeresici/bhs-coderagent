@@ -12,11 +12,13 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/boraeresici/bhs-coderagent/internal/api"
 	"github.com/boraeresici/bhs-coderagent/internal/config"
 	"github.com/boraeresici/bhs-coderagent/internal/effects"
 	"github.com/boraeresici/bhs-coderagent/internal/engine"
@@ -86,7 +88,24 @@ func run(log *slog.Logger, configPath string) error {
 	}
 	out := &sender{w: &buzz.Writer{Client: cli, Self: cfg.Buzz.SelfPubkey}, st: st, log: log, wait: map[string]backoff{}}
 
-	log.Info("coderagent started", "version", version, "channels", len(cfg.Buzz.Channels), "poll", cfg.Buzz.Poll.String())
+	handler, err := api.New(st, os.Getenv(cfg.API.TokenEnv))
+	if err != nil {
+		return fmt.Errorf("%w: set %s", err, cfg.API.TokenEnv)
+	}
+	srv := &http.Server{Addr: cfg.API.Listen, Handler: handler, ReadHeaderTimeout: 5 * time.Second}
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Error("api", "err", err)
+			stop()
+		}
+	}()
+	defer func() {
+		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		srv.Shutdown(shutdown)
+	}()
+
+	log.Info("coderagent started", "api", cfg.API.Listen, "version", version, "channels", len(cfg.Buzz.Channels), "poll", cfg.Buzz.Poll.String())
 	poll := time.NewTicker(cfg.Buzz.Poll)
 	defer poll.Stop()
 	flush := time.NewTicker(2 * time.Second)

@@ -80,7 +80,9 @@ services:
     environment:
       BUZZ_PRIVATE_KEY: ${ORCHESTRATOR_SECRET:?}
       BUZZ_RELAY_URL: http://relay:3000
-      CODERAGENT_API_TOKEN: dev
+      CODERAGENT_API_TOKEN: dev       # yalnız yerel; üretimde Coolify secret
+    ports:
+      - "127.0.0.1:3082:3082"
     volumes:
       - ../../bin:/app:ro
       - ${BHS_BIN:-../../../buzz-hermes-stack/bin}:/b:ro
