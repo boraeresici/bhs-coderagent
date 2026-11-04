@@ -1,0 +1,67 @@
+{
+  "paket_id": "coderagent-mvp",
+  "kosu": {
+    "id": "K-20261104-2123",
+    "mod": "run",
+    "at": "2026-11-04T21:23:00+03:00",
+    "BE": "3192b76+F6.5",
+    "FE": "—",
+    "kapsam": "tümü (13) — üretim imajı",
+    "rapor": "uat/paketler/coderagent-mvp/reports/2026-11-04-2123/uat-report.md"
+  },
+  "sonuclar": {
+    "GIR-01": {
+      "status": "pass",
+      "note": "4/4 kontrol; üretim imajı (deploy/Dockerfile)"
+    },
+    "GIR-02": {
+      "status": "pass",
+      "note": "3/3 kontrol; üretim imajı (deploy/Dockerfile)"
+    },
+    "GIR-03": {
+      "status": "pass",
+      "note": "2/2 kontrol; üretim imajı (deploy/Dockerfile)"
+    },
+    "GIR-04": {
+      "status": "pass",
+      "note": "3/3 kontrol; üretim imajı (deploy/Dockerfile)"
+    },
+    "GIR-05": {
+      "status": "pass",
+      "note": "3/3 kontrol; üretim imajı (deploy/Dockerfile)"
+    },
+    "TES-01": {
+      "status": "pass",
+      "note": "4/4 kontrol; üretim imajı (deploy/Dockerfile)"
+    },
+    "TES-02": {
+      "status": "pass",
+      "note": "4/4 kontrol; üretim imajı (deploy/Dockerfile)"
+    },
+    "TES-03": {
+      "status": "pass",
+      "note": "2/2 kontrol; üretim imajı (deploy/Dockerfile)"
+    },
+    "RAP-01": {
+      "status": "pass",
+      "note": "2/2 kontrol; üretim imajı (deploy/Dockerfile)"
+    },
+    "RAP-02": {
+      "status": "pass",
+      "note": "1/1 kontrol; üretim imajı (deploy/Dockerfile)"
+    },
+    "RAP-03": {
+      "status": "pass",
+      "note": "2/2 kontrol; üretim imajı (deploy/Dockerfile)"
+    },
+    "RAP-04": {
+      "status": "pass",
+      "note": "3/3 kontrol; üretim imajı (deploy/Dockerfile)"
+    },
+    "DAY-01": {
+      "status": "pass",
+      "note": "2/2 kontrol; üretim imajı (deploy/Dockerfile)"
+    }
+  },
+  "bulgular": []
+}

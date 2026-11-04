@@ -7,7 +7,7 @@
 #   scripts/dev-relay.sh buzz <kim> ...  buzz CLI'yi bir kimlikle calistirir
 #                                        kim: human | orchestrator | coder | outsider
 #   scripts/dev-relay.sh env             kanal ve pubkey'leri gosterir (gizli anahtarsiz)
-#   scripts/dev-relay.sh orchestrator    config uretir, orkestratoru baslatir (once: make build-arm64)
+#   scripts/dev-relay.sh orchestrator    ikilileri + imaji derler, config uretir, orkestratoru baslatir
 #   scripts/dev-relay.sh logs            orkestratorun loglari
 #   scripts/dev-relay.sh api <yol>       orkestrator API'si (or. state, tickets?filter=person)
 #   scripts/dev-relay.sh down [-v]       durdurur (-v: verileri de siler)
@@ -127,13 +127,13 @@ cmd_env() {
 cmd_orchestrator() {
   load
   [ -n "${CHANNEL:-}" ] || { echo "once: $0 seed" >&2; exit 1; }
-  [ -x "$ROOT/bin/coderagent-linux-arm64" ] || { echo "once: make build-arm64" >&2; exit 1; }
+  "$ROOT/scripts/build-binaries.sh" >/dev/null
   cat > "$DEV/work/config.yaml" <<CFG
 # scripts/dev-relay.sh orchestrator tarafindan uretildi — yerel.
-state_dir: /state
+state_dir: /var/lib/coderagent
 api: { listen: "0.0.0.0:3082", token_env: CODERAGENT_API_TOKEN }
 buzz:
-  cli: /b/buzz
+  cli: /usr/local/bin/buzz
   self_pubkey: "$ORCHESTRATOR_PUBKEY"
   coder_pubkey: "$CODER_PUBKEY"
   coder_name: coder
@@ -143,7 +143,7 @@ buzz:
 repos:
   - { name: dev, github: owner/dev, base: main, allowed_logins: [dev] }
 CFG
-  compose --profile orchestrator up -d --force-recreate coderagent
+  compose --profile orchestrator up -d --build --force-recreate coderagent
 }
 
 case "${1:-}" in

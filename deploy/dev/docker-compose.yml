@@ -71,12 +71,13 @@ services:
     depends_on:
       relay: { condition: service_healthy }
 
-  # Orkestratörün kendisi (make build-arm64 → bin/coderagent-linux-arm64).
-  # scripts/dev-relay.sh orchestrator config'i üretir ve bunu başlatır.
+  # Orkestratörün kendisi, üretim imajıyla (deploy/Dockerfile; önce scripts/build-binaries.sh).
+  # scripts/dev-relay.sh orchestrator config'i üretir, imajı derler ve bunu başlatır.
   coderagent:
     profiles: [orchestrator]
-    image: debian:bookworm-slim
-    command: ["sh", "-c", "apt-get update -qq && apt-get install -y -qq ca-certificates >/dev/null && exec /app/coderagent-linux-arm64 -config /work/config.yaml"]
+    build: { context: ../.., dockerfile: deploy/Dockerfile }
+    image: coderagent:dev
+    command: ["-config", "/work/config.yaml"]
     environment:
       BUZZ_PRIVATE_KEY: ${ORCHESTRATOR_SECRET:?}
       BUZZ_RELAY_URL: http://relay:3000
@@ -84,10 +85,8 @@ services:
     ports:
       - "127.0.0.1:3082:3082"
     volumes:
-      - ../../bin:/app:ro
-      - ${BHS_BIN:-../../../buzz-hermes-stack/bin}:/b:ro
       - ./work:/work:ro
-      - state:/state
+      - coderagent-state:/var/lib/coderagent
     depends_on:
       relay: { condition: service_healthy }
 
@@ -138,7 +137,7 @@ services:
       retries: 30
 
 volumes:
-  state:
+  coderagent-state:   # imajın kullanıcısı (uid 10001) yazar; eski "state" volume'ü root'tu
   git:
   postgres:
   redis:

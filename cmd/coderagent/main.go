@@ -35,16 +35,36 @@ var version = "dev"
 func main() {
 	configPath := flag.String("config", "/etc/coderagent/config.yaml", "settings file")
 	showVersion := flag.Bool("version", false, "print version and exit")
+	healthcheck := flag.String("healthcheck", "", "GET this /healthz URL, exit 0 when healthy (the image has no curl)")
 	flag.Parse()
 	if *showVersion {
 		fmt.Println(version)
 		return
+	}
+	if *healthcheck != "" {
+		os.Exit(probe(*healthcheck))
 	}
 	log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 	if err := run(log, *configPath); err != nil {
 		log.Error("coderagent stopped", "err", err)
 		os.Exit(1)
 	}
+}
+
+// probe is the container health check: 0 when url answers 200 within five seconds.
+func probe(url string) int {
+	c := &http.Client{Timeout: 5 * time.Second}
+	resp, err := c.Get(url)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		fmt.Fprintln(os.Stderr, resp.Status)
+		return 1
+	}
+	return 0
 }
 
 func run(log *slog.Logger, configPath string) error {
