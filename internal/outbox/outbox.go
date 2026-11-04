@@ -11,6 +11,7 @@ package outbox
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -27,7 +28,9 @@ type Message struct {
 	// Conversation is where it goes, e.g. a Buzz thread key; order holds within it.
 	Conversation string
 	Body         string
-	Seq          int64
+	// Mentions are identities the message tags (Buzz pubkeys), so their agent is notified.
+	Mentions []string
+	Seq      int64
 }
 
 // Marker is the hidden tag appended to a message body (§5.4). Buzz renders message text
@@ -59,11 +62,15 @@ func Enqueue(ctx context.Context, tx store.Querier, now time.Time, m Message) (b
 	if m.Conversation == "" {
 		return false, errors.New("outbox: message has no conversation")
 	}
+	mentions, err := json.Marshal(append([]string{}, m.Mentions...))
+	if err != nil {
+		return false, err
+	}
 	res, err := tx.ExecContext(ctx, `
-INSERT INTO outbox(id, ticket_id, conversation, seq, body, created_at)
-VALUES(?, NULLIF(?, ''), ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM outbox WHERE conversation = ?), ?, ?)
+INSERT INTO outbox(id, ticket_id, conversation, seq, body, mentions, created_at)
+VALUES(?, NULLIF(?, ''), ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM outbox WHERE conversation = ?), ?, ?, ?)
 ON CONFLICT(id) DO NOTHING`,
-		m.ID, m.TicketID, m.Conversation, m.Conversation, m.Body, now.UnixMilli())
+		m.ID, m.TicketID, m.Conversation, m.Conversation, m.Body, string(mentions), now.UnixMilli())
 	if err != nil {
 		return false, err
 	}
@@ -75,7 +82,7 @@ ON CONFLICT(id) DO NOTHING`,
 // message of that conversation that may be sent now.
 func Heads(ctx context.Context, q store.Querier) ([]Message, error) {
 	rows, err := q.QueryContext(ctx, `
-SELECT o.id, COALESCE(o.ticket_id, ''), o.conversation, o.body, o.seq FROM outbox o
+SELECT o.id, COALESCE(o.ticket_id, ''), o.conversation, o.body, o.mentions, o.seq FROM outbox o
 WHERE o.state = 'pending'
   AND o.seq = (SELECT MIN(seq) FROM outbox WHERE conversation = o.conversation AND state = 'pending')
 ORDER BY o.created_at, o.conversation`)
@@ -86,7 +93,11 @@ ORDER BY o.created_at, o.conversation`)
 	var out []Message
 	for rows.Next() {
 		var m Message
-		if err := rows.Scan(&m.ID, &m.TicketID, &m.Conversation, &m.Body, &m.Seq); err != nil {
+		var mentions string
+		if err := rows.Scan(&m.ID, &m.TicketID, &m.Conversation, &m.Body, &mentions, &m.Seq); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(mentions), &m.Mentions); err != nil {
 			return nil, err
 		}
 		out = append(out, m)

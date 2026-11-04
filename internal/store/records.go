@@ -68,6 +68,20 @@ func OpenTickets(ctx context.Context, q Querier) ([]*ticket.Ticket, error) {
 	return out, rows.Err()
 }
 
+// GetTrigger reads one Trigger.
+func GetTrigger(ctx context.Context, q Querier, id string) (*ticket.Trigger, error) {
+	var body string
+	err := q.QueryRowContext(ctx, `SELECT body FROM trigger WHERE id = ?`, id).Scan(&body)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	var t ticket.Trigger
+	return &t, json.Unmarshal([]byte(body), &t)
+}
+
 // TriggerResult is what receiving a Trigger did (upstream Engine.receive).
 type TriggerResult string
 

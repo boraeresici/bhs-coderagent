@@ -32,6 +32,26 @@ func TestOpenLocksDirectory(t *testing.T) {
 	open(t, dir).Close() // the lock is released on Close
 }
 
+func TestMigratesAnOlderDatabase(t *testing.T) {
+	dir := t.TempDir()
+	s := open(t, dir)
+	// Roll the database back to schema 1, as a build before migration 2 left it.
+	if _, err := s.DB().Exec("ALTER TABLE outbox DROP COLUMN mentions; PRAGMA user_version = 1"); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	s = open(t, dir)
+	defer s.Close()
+	var v int
+	s.DB().QueryRow("PRAGMA user_version").Scan(&v)
+	if v != SchemaVersion {
+		t.Fatalf("user_version = %d, want %d", v, SchemaVersion)
+	}
+	if _, err := s.DB().Exec(`SELECT mentions FROM outbox`); err != nil {
+		t.Fatalf("migration 2 not applied: %v", err)
+	}
+}
+
 func TestRefusesNewerSchema(t *testing.T) {
 	dir := t.TempDir()
 	s := open(t, dir)

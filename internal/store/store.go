@@ -155,6 +155,8 @@ CREATE TABLE kv (
   v TEXT NOT NULL
 );
 `,
+	// 2: an outbox message can tag pubkeys (the assignment mentions the coder, F4.1).
+	`ALTER TABLE outbox ADD COLUMN mentions TEXT NOT NULL DEFAULT '[]';`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {

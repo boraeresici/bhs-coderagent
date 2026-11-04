@@ -7,6 +7,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -69,7 +70,13 @@ func run(log *slog.Logger, configPath string) error {
 	}
 	cli := &buzz.CLI{Runner: buzz.Exec{Path: cfg.Buzz.CLI}}
 	q := effects.New(st.DB(), time.Now, effects.DefaultPolicies)
-	eng := engine.New(st, q, time.Now, engine.Config{Self: cfg.Buzz.SelfPubkey, Channels: cfg.Buzz.Channels})
+	// The MVP works in one repository (ANALIZ.md §10): the first profile.
+	repo := cfg.Repos[0]
+	eng := engine.New(st, q, time.Now, engine.Config{
+		Self: cfg.Buzz.SelfPubkey, Channels: cfg.Buzz.Channels,
+		Coder: cfg.Buzz.CoderPubkey, CoderName: cfg.Buzz.CoderName,
+		Repo: engine.Repo{GitHub: repo.GitHub, Base: repo.Base},
+	})
 	src := &buzz.Source{
 		Reader:   cli,
 		DB:       st.DB(),
@@ -86,6 +93,7 @@ func run(log *slog.Logger, configPath string) error {
 	defer flush.Stop()
 	for {
 		sync(ctx, log, src, eng)
+		runEffects(ctx, log, q, eng)
 		out.flush(ctx)
 		select {
 		case <-ctx.Done():
@@ -93,6 +101,7 @@ func run(log *slog.Logger, configPath string) error {
 			return nil
 		case <-poll.C:
 		case <-flush.C:
+			runEffects(ctx, log, q, eng)
 			out.flush(ctx)
 			continue
 		}
@@ -119,6 +128,46 @@ func sync(ctx context.Context, log *slog.Logger, src *buzz.Source, eng *engine.E
 	})
 	if err != nil && ctx.Err() == nil {
 		log.Error("sync", "err", err)
+	}
+}
+
+// runEffects runs the due launch and delivery effects. A LaterError puts an effect back
+// without counting an attempt; any other error counts one and backs off.
+func runEffects(ctx context.Context, log *slog.Logger, q *effects.Queue, eng *engine.Engine) {
+	for _, kind := range []string{effects.Launch, effects.Delivery} {
+		p, _ := q.Policy(kind)
+		due, err := q.Claim(ctx, kind, p.Concurrency)
+		if err != nil {
+			log.Error("effects", "kind", kind, "err", err)
+			continue
+		}
+		for _, ef := range due {
+			var payload struct{ Ticket, Assignment string }
+			err := json.Unmarshal(ef.Payload, &payload)
+			if err == nil {
+				switch kind {
+				case effects.Launch:
+					err = eng.Launch(ctx, payload.Ticket, payload.Assignment)
+				case effects.Delivery:
+					err = eng.Deliver(ctx, payload.Ticket)
+				}
+			}
+			var later *engine.LaterError
+			switch {
+			case err == nil:
+				err = q.Done(ctx, ef.ID)
+			case errors.As(err, &later):
+				log.Info("effect later", "kind", kind, "key", ef.Key, "reason", later.Reason)
+				err = q.Later(ctx, ef.ID, later.Until)
+			default:
+				dead, ferr := q.Fail(ctx, ef.ID, err)
+				log.Error("effect failed", "kind", kind, "key", ef.Key, "dead", dead, "err", err)
+				err = ferr
+			}
+			if err != nil {
+				log.Error("effects", "kind", kind, "key", ef.Key, "err", err)
+			}
+		}
 	}
 }
 

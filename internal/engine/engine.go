@@ -24,21 +24,37 @@ import (
 // PolicyVersion names the gate's rules; a Mandate records it.
 const PolicyVersion = "gate-v1"
 
-// Config is what the gate checks.
+// Config is what the gate checks and where work goes.
 type Config struct {
 	// Self is the orchestrator's own actor id; its messages never become Triggers.
 	Self string
 	// Channels are the receiving scopes the Source listens to (Buzz channel UUIDs).
 	Channels []string
+	// Coder is the executor's actor id: Assignments mention it, and only its messages
+	// on a Ticket's thread report on that Ticket.
+	Coder string
+	// CoderName is how messages address the coder in text (@CoderName).
+	CoderName string
+	// Repo is the repository Tickets work in. The MVP has one (ANALIZ.md §10).
+	Repo Repo
+}
+
+// Repo is the part of a repository profile the engine writes into assignments (§5.5a).
+type Repo struct {
+	GitHub string
+	Base   string
 }
 
 // Engine decides what each Trigger does.
 type Engine struct {
-	st       *store.Store
-	effects  *effects.Queue
-	now      func() time.Time
-	self     string
-	channels map[string]bool
+	st        *store.Store
+	effects   *effects.Queue
+	now       func() time.Time
+	self      string
+	channels  map[string]bool
+	coder     string
+	coderName string
+	repo      Repo
 }
 
 // New returns an Engine over an open store.
@@ -47,7 +63,8 @@ func New(st *store.Store, q *effects.Queue, now func() time.Time, cfg Config) *E
 	for _, c := range cfg.Channels {
 		ch[c] = true
 	}
-	return &Engine{st: st, effects: q, now: now, self: cfg.Self, channels: ch}
+	return &Engine{st: st, effects: q, now: now, self: cfg.Self, channels: ch,
+		coder: cfg.Coder, coderName: cfg.CoderName, repo: cfg.Repo}
 }
 
 // Outcome is what receiving a Trigger did.
@@ -144,9 +161,13 @@ func (e *Engine) filter(tr *ticket.Trigger) *ticket.Reason {
 }
 
 // fanout hands the Trigger to the Tickets subscribed to its Thread, without checking the
-// sender: a Subscription carries context and grants nothing. A live Ticket takes it as
-// Input. An ended Ticket resumes under its unchanged Mandate when a person wrote it,
-// unless a person stopped that Ticket; bots and CI never wake one (ANALIZ.md §5.3).
+// sender: a Subscription carries context and grants nothing.
+//
+// The coder's own message is its report on the Ticket, never an Input back to itself.
+// Anything else is Input: delivered at once to a running Assignment, carried by the next
+// launch otherwise. A person's message on an idle Ticket starts the next Assignment. An
+// ended Ticket resumes under its unchanged Mandate when a person wrote it, unless a
+// person stopped that Ticket; bots and CI never wake one (ANALIZ.md §5.3).
 func (e *Engine) fanout(ctx context.Context, tx *sql.Tx, tr *ticket.Trigger, th *ticket.Thread, now time.Time) ([]string, error) {
 	var reached []string
 	for _, id := range th.Subscriptions {
@@ -154,24 +175,45 @@ func (e *Engine) fanout(ctx context.Context, tx *sql.Tx, tr *ticket.Trigger, th 
 		if err != nil {
 			return nil, fmt.Errorf("engine: subscribed ticket %s: %w", id, err)
 		}
-		if !t.Live() {
-			if !tr.Human || t.Ended.By == ticket.EndByHuman {
+		if tr.Actor.ID == e.coder {
+			if !t.Live() || !e.applyReport(t, tr, now) {
 				continue
 			}
-			if err := e.resume(ctx, tx, t, tr, now); err != nil {
-				return nil, err
+		} else {
+			if !t.Live() {
+				if !tr.Human || t.Ended.By == ticket.EndByHuman {
+					continue
+				}
+				if err := e.resume(ctx, tx, t, tr, now); err != nil {
+					return nil, err
+				}
 			}
+			inputID := ticket.Key("input", t.ID, tr.ID)
+			addInput(t, ticket.TicketInput{ID: inputID, Kind: ticket.InputTrigger, TriggerID: tr.ID, Human: tr.Human, At: tr.At})
+			switch {
+			case t.RunningAssignment() != nil:
+				if _, err := e.effects.Enqueue(ctx, tx, effects.Delivery, "delivery:"+inputID, map[string]string{"ticket": t.ID}); err != nil {
+					return nil, err
+				}
+			case !pending(t) && tr.Human:
+				if err := e.newAssignment(ctx, tx, t, now); err != nil {
+					return nil, err
+				}
+			}
+			t.UpdatedAt = now
 		}
-		addInput(t, ticket.TicketInput{
-			ID: ticket.Key("input", t.ID, tr.ID), Kind: ticket.InputTrigger, TriggerID: tr.ID, Human: tr.Human, At: tr.At,
-		})
-		t.UpdatedAt = now
 		if err := store.PutTicket(ctx, tx, t); err != nil {
 			return nil, err
 		}
 		reached = append(reached, t.ID)
 	}
 	return reached, nil
+}
+
+// pending reports whether a Ticket has an Assignment waiting to launch.
+func pending(t *ticket.Ticket) bool {
+	a := t.LatestAssignment()
+	return a != nil && a.State == ticket.AssignmentPending
 }
 
 // resume reopens an ended Ticket for a person's message with a new Assignment, the same

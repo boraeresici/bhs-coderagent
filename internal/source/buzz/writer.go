@@ -38,7 +38,7 @@ func ThreadAddress(conversation string) (channel, root string, err error) {
 // posting and recording the receipt would post it again, so the thread is searched for
 // the message's marker first, among the orchestrator's own messages only: anyone can
 // quote a marker, only the orchestrator can sign as itself (ANALIZ.md §5.4).
-func (w *Writer) Deliver(ctx context.Context, m outbox.Message, mentions ...string) (string, error) {
+func (w *Writer) Deliver(ctx context.Context, m outbox.Message) (string, error) {
 	channel, root, err := ThreadAddress(m.Conversation)
 	if err != nil {
 		return "", err
@@ -46,7 +46,7 @@ func (w *Writer) Deliver(ctx context.Context, m outbox.Message, mentions ...stri
 	if id, err := w.find(ctx, channel, root, m.ID); err != nil || id != "" {
 		return id, err
 	}
-	raw, err := w.Client.Send(ctx, SendParams{Channel: channel, ReplyTo: root, Mentions: mentions, Content: m.Body})
+	raw, err := w.Client.Send(ctx, SendParams{Channel: channel, ReplyTo: root, Mentions: m.Mentions, Content: m.Body})
 	if err != nil {
 		return "", err
 	}

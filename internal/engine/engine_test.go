@@ -39,7 +39,8 @@ func setup(t *testing.T) *fixture {
 	f := &fixture{t: t, st: st, now: time.Date(2026, 11, 4, 10, 0, 0, 0, time.UTC)}
 	clock := func() time.Time { return f.now }
 	f.q = effects.New(st.DB(), clock, effects.DefaultPolicies)
-	f.e = New(st, f.q, clock, Config{Self: self, Channels: []string{channel}})
+	f.e = New(st, f.q, clock, Config{Self: self, Channels: []string{channel}, Coder: coder, CoderName: "coder",
+		Repo: Repo{GitHub: "owner/repo", Base: "dev"}})
 	return f
 }
 
@@ -198,10 +199,10 @@ func TestFollowUpStaysWithTicket(t *testing.T) {
 	tk := f.receive(origin).TicketID
 	root := origin.Channel.Address["reply_to"]
 
-	// Bot reply, a person's follow-up, and a person mentioning the agent again on the same
-	// Thread all reach the Ticket; none starts a second one (A11).
+	// A bot's reply, a person's follow-up, and a person mentioning the agent again on the
+	// same Thread all reach the Ticket; none starts a second one (A11).
 	for _, m := range []msg{
-		{actor: coder, human: false, root: root, text: "PR açtım"},
+		{actor: "ci-bot", human: false, root: root, text: "CI kırmızı"},
 		{actor: human, human: true, root: root, text: "testi de ekle"},
 		{actor: human, human: true, addressed: ticket.AddressedMention, root: root, text: "@coderagent bir şey daha"},
 	} {
@@ -236,7 +237,7 @@ func TestResume(t *testing.T) {
 	}
 
 	end(ticket.EndByExecutor)
-	if r := f.receive(f.trigger(msg{actor: coder, human: false, root: root, text: "CI yeşil"})); r.Outcome == FannedOut {
+	if r := f.receive(f.trigger(msg{actor: "ci-bot", human: false, root: root, text: "CI yeşil"})); r.Outcome == FannedOut {
 		t.Fatal("a bot must not wake an ended Ticket")
 	}
 	if f.ticket(id).Live() {
