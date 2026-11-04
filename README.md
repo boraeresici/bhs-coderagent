@@ -18,4 +18,4 @@ make build        # bin/coderagent
 make build-arm64  # VPS için linux/arm64
 ```
 
-Durum: F2 (saf çekirdek) sürüyor; servis döngüsü henüz yok.
+Durum: F2 (saf çekirdek) bitti; F3 (Buzz Source) F0 ölçümlerini bekliyor. Servis döngüsü henüz yok.

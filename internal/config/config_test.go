@@ -1,0 +1,83 @@
+package config
+
+import (
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestExampleLoads(t *testing.T) {
+	c, warnings, err := Load("../../config.example.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warnings) != 0 {
+		t.Errorf("unexpected warnings: %v", warnings)
+	}
+	if c.Buzz.Poll != 60*time.Second {
+		t.Errorf("poll = %v", c.Buzz.Poll)
+	}
+	r, ok := c.Repo("OWNER/tms")
+	if !ok || r.Base != "dev" {
+		t.Fatalf("Repo lookup = %+v, %v", r, ok)
+	}
+	if !r.AllowsLogin("Borae") || r.AllowsLogin("someone") {
+		t.Error("AllowsLogin must match listed logins case-insensitively and nothing else")
+	}
+}
+
+const valid = `
+state_dir: /tmp/s
+api: {listen: "127.0.0.1:3082", token_env: T}
+buzz:
+  cli: buzz
+  self_pubkey: "0000000000000000000000000000000000000000000000000000000000000001"
+  coder_pubkey: "0000000000000000000000000000000000000000000000000000000000000002"
+  coder_name: coder
+  channels: [c1]
+repos:
+`
+
+func TestRepoValidation(t *testing.T) {
+	cases := []struct {
+		name, repo, wantErr string
+	}{
+		{"missing base", `- {name: a, github: o/a}`, "base is required"},
+		{"bad github", `- {name: a, github: a, base: main}`, "github must be owner/name"},
+		{"unknown run", `- {name: a, github: o/a, base: main, run: k8s}`, "run must be native or compose"},
+		{"run without up", `- {name: a, github: o/a, base: main, run: native}`, "needs up and health"},
+		{"unknown defter", `- {name: a, github: o/a, base: main, defter: s3}`, "defter must be repo or local"},
+		{"uat without run", `- {name: a, github: o/a, base: main, uat_paket: p}`, "uat_paket needs run"},
+		{"duplicate", "- {name: a, github: o/a, base: main}\n- {name: a, github: o/b, base: main}", "duplicate name"},
+		{"typo is not ignored", `- {name: a, github: o/a, base: main, allowed_login: [x]}`, "field allowed_login not found"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, _, err := Parse([]byte(valid + c.repo))
+			if err == nil || !strings.Contains(err.Error(), c.wantErr) {
+				t.Errorf("err = %v, want it to contain %q", err, c.wantErr)
+			}
+		})
+	}
+}
+
+func TestEmptyAllowedLoginsFailsClosed(t *testing.T) {
+	c, warnings, err := Parse([]byte(valid + `- {name: a, github: o/a, base: main}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "allowed_logins is empty") {
+		t.Errorf("warnings = %v", warnings)
+	}
+	if c.Repos[0].AllowsLogin("") || c.Repos[0].AllowsLogin("anyone") {
+		t.Error("an empty allowed_logins must allow no one")
+	}
+}
+
+func TestBuzzValidation(t *testing.T) {
+	bad := strings.Replace(valid, `"0000000000000000000000000000000000000000000000000000000000000002"`, "npub1xyz", 1)
+	_, _, err := Parse([]byte(bad + `- {name: a, github: o/a, base: main}`))
+	if err == nil || !strings.Contains(err.Error(), "coder_pubkey must be") {
+		t.Errorf("err = %v", err)
+	}
+}

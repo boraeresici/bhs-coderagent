@@ -1,0 +1,36 @@
+# bhs-coderagent ayarları — ANALIZ.md §5.2, §5.5a, §5.8a.
+# Secret'lar burada DEĞİL: nsec ve token'lar ortam değişkeninden okunur.
+
+state_dir: /var/lib/coderagent
+
+api:
+  listen: 127.0.0.1:3082
+  token_env: CODERAGENT_API_TOKEN   # panel ↔ orkestratör bearer token'ı
+
+buzz:
+  cli: /usr/local/bin/buzz
+  self_pubkey: "0000000000000000000000000000000000000000000000000000000000000001"
+  coder_pubkey: "0000000000000000000000000000000000000000000000000000000000000002"
+  coder_name: coder                 # mention: @coder
+  agent_pubkeys: []                 # BHS ajanları (ops, sec, review, wip, coder) — human:false
+  channels: [coder-channel-id]      # dinlenen kanal id'leri (#coder) — biçimi A1 ölçümünde kesinleşir
+  poll: 60s
+
+repos:
+  - name: tms
+    github: owner/tms
+    base: dev                       # dal tabanı = PR hedefi = korunan dal
+    run: compose                    # native | compose | (boş: QA yok)
+    up: docker compose up -d --wait
+    down: docker compose down -v
+    health: http://localhost:8000/health
+    allowed_logins: [borae]         # boşsa hiçbir GitHub yorumu coder'a gitmez
+    uat_paket: tms-transfer-rentacar
+    defter: local                   # repo | local | (boş: ilk Ticket'ta sorulur)
+  - name: panel
+    github: owner/buzz-hermes-stack
+    base: main
+    run: native
+    up: make dev
+    health: http://localhost:3080/healthz
+    allowed_logins: [borae]

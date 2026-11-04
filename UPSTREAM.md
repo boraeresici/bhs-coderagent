@@ -16,8 +16,9 @@ Assignment, Report, Input.
 | `src/core/stage.ts` `ticketStage`, `canRetry` | `internal/ticket/stage.go` `StageOf`, `CanRetry` | taşındı (birebir) | Tablo sırası aynı, "ilk eşleşen kazanır" |
 | `src/core/model.ts` | `internal/ticket/model.go` | kısmi | Aşağıdaki "Alınmayan alanlar" |
 | `src/core/reasons.ts` | `internal/ticket/reasons.go` | kısmi | Yalnız MVP gate'inin kullandığı kodlar + bizim kodlarımız |
-| `src/app/store.ts` | `internal/store` | yapılmadı (F2.6) | |
-| `src/app/effects.ts` | `internal/effects` | yapılmadı (F2.7) | |
+| `src/app/store.ts` | `internal/store` | taşındı (kavram) | Tek SQLite, JSON gövde + generated column, dizin kilidi (`flock`; upstream `proper-lockfile`), `user_version` yalnız artar |
+| `src/app/effects.ts` | `internal/effects` | taşındı (kavram) | Anahtarla idempotent, kiralama ile en-az-bir-kez, tür başına backoff, `Later`; `assessment`/`relay` türleri MVP'de yok |
+| outbox (`src/app/store.ts` `outbox` tablosu) | `internal/outbox` | taşındı (kavram) | Konuşma başına sıra; gizli işaret `<!-- coderagent:<id> -->` (upstream `<!-- dsh-superagent:<id> -->`) |
 | `src/sources/*` | `internal/source/{buzz,github}` | yapılmadı (F3, F5) | Buzz Source upstream'de yok — yerel |
 | Red team kapıları, bulgu döngüsü | — | **karşılığı yok — yerel ekleme** | ANALIZ §5.11 |
 | QA / kabul testi | — | **karşılığı yok — yerel ekleme** | ANALIZ §5.12 |
