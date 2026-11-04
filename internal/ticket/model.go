@@ -47,15 +47,28 @@ type Trigger struct {
 	Threads []ThreadRef `json:"threads"`
 	Actor   ActorRef    `json:"actor"`
 	// Human is Source-declared: a person wrote it, not a bot, CI or this agent.
-	Human     bool        `json:"human"`
-	Addressed Addressed   `json:"addressed,omitempty"`
-	At        time.Time   `json:"at"`
-	Text      string      `json:"text"`
-	Channel   *ChannelRef `json:"channel,omitempty"`
-	URL       string      `json:"url,omitempty"`
+	Human     bool      `json:"human"`
+	Addressed Addressed `json:"addressed,omitempty"`
+	At        time.Time `json:"at"`
+	Text      string    `json:"text"`
+	// Event is the Source's native kind of event where the gate's rules depend on it: for
+	// GitHub comment, review, ci-success, ci-failure, merged or closed (ANALIZ.md §5.8a).
+	Event   string      `json:"event,omitempty"`
+	Channel *ChannelRef `json:"channel,omitempty"`
+	URL     string      `json:"url,omitempty"`
 	// Meta holds Source-native details for adapters; the core never interprets them.
 	Meta map[string]any `json:"meta,omitempty"`
 }
+
+// GitHub events, as Trigger.Event (ANALIZ.md §5.8a).
+const (
+	EventComment   = "comment"
+	EventReview    = "review"
+	EventCISuccess = "ci-success"
+	EventCIFailure = "ci-failure"
+	EventMerged    = "merged"
+	EventClosed    = "closed"
+)
 
 // Strength of a Mandate: an explicit request, or work the agent inferred.
 type Strength string
@@ -242,6 +255,8 @@ type Ticket struct {
 	Origin      Origin           `json:"origin"`
 	Execution   *Execution       `json:"execution,omitempty"`
 	Delivery    *DeliveryFailure `json:"delivery,omitempty"`
+	// Hops counts the messages that mentioned the coder for this Ticket (§5.7).
+	Hops int `json:"hops,omitempty"`
 }
 
 // Live reports whether the Ticket is open.

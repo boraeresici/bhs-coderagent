@@ -65,6 +65,7 @@ type TicketView struct {
 	Inputs    int               `json:"inputs"`
 	Undeliv   int               `json:"undelivered"`
 	Attempts  int               `json:"assignments"`
+	Hops      int               `json:"hops"`
 	CreatedAt time.Time         `json:"created_at"`
 	UpdatedAt time.Time         `json:"updated_at"`
 }
@@ -73,7 +74,7 @@ func view(t *ticket.Ticket) TicketView {
 	v := TicketView{
 		ID: t.ID, Title: t.Title, Stage: ticket.StageOf(t).String(), Requester: t.Mandate.Actor.ID,
 		Attention: t.Attention, Follows: t.Follows, Ended: t.Ended, CanRetry: ticket.CanRetry(t),
-		Inputs: len(t.Inputs), Undeliv: len(t.Undelivered), Attempts: len(t.Assignments),
+		Inputs: len(t.Inputs), Undeliv: len(t.Undelivered), Attempts: len(t.Assignments), Hops: t.Hops,
 		CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,
 	}
 	if t.Execution != nil {

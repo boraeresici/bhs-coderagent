@@ -40,7 +40,7 @@ func setup(t *testing.T) *fixture {
 	clock := func() time.Time { return f.now }
 	f.q = effects.New(st.DB(), clock, effects.DefaultPolicies)
 	f.e = New(st, f.q, clock, Config{Self: self, Channels: []string{channel}, Coder: coder, CoderName: "coder",
-		Repo: Repo{GitHub: "owner/repo", Base: "dev"}})
+		Repo: Repo{GitHub: "owner/repo", Base: "dev", AllowedLogins: []string{"Borae"}}, GitHubSelf: []string{"bhs-coder-bot"}})
 	return f
 }
 

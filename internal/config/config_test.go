@@ -35,6 +35,7 @@ buzz:
   coder_pubkey: "0000000000000000000000000000000000000000000000000000000000000002"
   coder_name: coder
   channels: [c1]
+github: {cli: gh, self_logins: [bot]}
 repos:
 `
 
@@ -79,5 +80,23 @@ func TestBuzzValidation(t *testing.T) {
 	_, _, err := Parse([]byte(bad + `- {name: a, github: o/a, base: main}`))
 	if err == nil || !strings.Contains(err.Error(), "coder_pubkey must be") {
 		t.Errorf("err = %v", err)
+	}
+}
+
+func TestGitHubValidation(t *testing.T) {
+	repo := `- {name: a, github: o/a, base: main, allowed_logins: [x]}`
+	off := strings.Replace(valid, "github: {cli: gh, self_logins: [bot]}\n", "", 1)
+	c, warnings, err := Parse([]byte(off + repo))
+	if err != nil || c.GitHub.CLI != "" || len(warnings) != 1 || !strings.Contains(warnings[0], "github.cli is empty") {
+		t.Errorf("github off: %v %v", warnings, err)
+	}
+	for _, c := range []struct{ github, wantErr string }{
+		{"github: {cli: gh}", "github.self_logins"},
+		{"github: {cli: gh, self_logins: [bot], poll: 10s}", "github.poll must be at least 30s"},
+	} {
+		bad := strings.Replace(valid, "github: {cli: gh, self_logins: [bot]}", c.github, 1)
+		if _, _, err := Parse([]byte(bad + repo)); err == nil || !strings.Contains(err.Error(), c.wantErr) {
+			t.Errorf("%s: err = %v", c.github, err)
+		}
 	}
 }

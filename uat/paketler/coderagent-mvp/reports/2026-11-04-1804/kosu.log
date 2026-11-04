@@ -1,0 +1,15 @@
+GIR-01  pass    E1✓ E2✓ E3✓ N1✓
+GIR-02  pass    E1✓ E2✓ N1✓
+GIR-03  pass    E1✓ E2✓
+GIR-04  pass    E1✓ E2✓ N1✓
+GIR-05  pass    E1✓ E2✓ N1✓
+TES-01  pass    E1✓ E2✓ E3✓ E4✓
+TES-02  pass    E1✓ E2✓ E3✓ N1✓
+TES-03  fail    E1✗ E2✓
+RAP-01  pass    E1✓ E2✓
+RAP-02  pass    E1✓
+RAP-03  pass    E1✓ N1✓
+RAP-04  pass    E1✓ E2✓ N1✓
+DAY-01  pass    E1✓ E2✓
+
+[exited with code 0]

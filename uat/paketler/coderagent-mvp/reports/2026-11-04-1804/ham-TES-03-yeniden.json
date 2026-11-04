@@ -1,0 +1,63 @@
+{
+  "paket_id": "coderagent-mvp",
+  "basla": "2026-11-04T15:12:23.328Z",
+  "sonuclar": {
+    "TES-03": {
+      "durum": "pass",
+      "sure_sn": 72,
+      "adimlar": [
+        {
+          "n": 1,
+          "baslik": "iki ayrı kök istek",
+          "ok": true,
+          "ms": 2385
+        },
+        {
+          "n": 2,
+          "baslik": "poll + teslim",
+          "ok": true,
+          "ms": 20002
+        },
+        {
+          "n": 3,
+          "baslik": "iki thread'i oku",
+          "ok": true,
+          "ms": 435
+        },
+        {
+          "n": 4,
+          "baslik": "1. işe ready raporu",
+          "ok": true,
+          "ms": 219
+        },
+        {
+          "n": 5,
+          "baslik": "busy bekleme",
+          "ok": true,
+          "ms": 45003
+        },
+        {
+          "n": 6,
+          "baslik": "2. thread'i oku",
+          "ok": true,
+          "ms": 175
+        }
+      ],
+      "kontroller": [
+        {
+          "n": "E1",
+          "exp": 0,
+          "ok": true,
+          "gerceklesen": "devir: 1. thread 1, 2. thread 0"
+        },
+        {
+          "n": "E2",
+          "exp": 1,
+          "ok": true,
+          "gerceklesen": "2. thread'deki devir: 1"
+        }
+      ],
+      "notlar": []
+    }
+  }
+}

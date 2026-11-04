@@ -13,6 +13,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/boraeresici/bhs-coderagent/internal/effects"
@@ -37,13 +38,21 @@ type Config struct {
 	CoderName string
 	// Repo is the repository Tickets work in. The MVP has one (ANALIZ.md §10).
 	Repo Repo
+	// GitHubSelf are our own GitHub accounts; what they write never becomes a Trigger.
+	GitHubSelf []string
 }
 
-// Repo is the part of a repository profile the engine writes into assignments (§5.5a).
+// Repo is the part of a repository profile the engine needs (§5.5a, §5.8a).
 type Repo struct {
 	GitHub string
 	Base   string
+	// AllowedLogins are the people whose GitHub comments reach the coder; empty allows none.
+	AllowedLogins []string
 }
+
+// botRounds is how many rounds an automated reviewer gets per pull request (§5.7,
+// upstream docs/004).
+const botRounds = 3
 
 // Engine decides what each Trigger does.
 type Engine struct {
@@ -51,6 +60,7 @@ type Engine struct {
 	effects   *effects.Queue
 	now       func() time.Time
 	self      string
+	ghSelf    []string
 	channels  map[string]bool
 	coder     string
 	coderName string
@@ -63,7 +73,7 @@ func New(st *store.Store, q *effects.Queue, now func() time.Time, cfg Config) *E
 	for _, c := range cfg.Channels {
 		ch[c] = true
 	}
-	return &Engine{st: st, effects: q, now: now, self: cfg.Self, channels: ch,
+	return &Engine{st: st, effects: q, now: now, self: cfg.Self, ghSelf: cfg.GitHubSelf, channels: ch,
 		coder: cfg.Coder, coderName: cfg.CoderName, repo: cfg.Repo}
 }
 
@@ -117,7 +127,13 @@ func (e *Engine) Receive(ctx context.Context, tr *ticket.Trigger) (Result, error
 			return nil
 		}
 		now := e.now()
-		if reason := e.filter(tr); reason != nil {
+		reason := e.filter(tr)
+		if reason == nil {
+			if reason, err = e.botRound(ctx, tx, tr); err != nil {
+				return err
+			}
+		}
+		if reason != nil {
 			res = Result{Outcome: Filtered, Reason: reason}
 			return store.SetDisposition(ctx, tx, tr.ID, &ticket.Disposition{Filtered: reason, At: now})
 		}
@@ -150,7 +166,23 @@ func (e *Engine) Receive(ctx context.Context, tr *ticket.Trigger) (Result, error
 
 // filter is the Source scope: the agent's own messages and channels it does not listen
 // to never enter the domain. They are recorded, not silently dropped (upstream cookbook).
+//
+// On GitHub the scope is the repository, and a person who is not in allowed_logins reaches
+// nothing: Buzz is the only command channel, and a pull request comment would otherwise
+// let anyone who can comment make the coder work (§5.8a). Bots and CI are not people and
+// pass; botRound bounds the bots.
 func (e *Engine) filter(tr *ticket.Trigger) *ticket.Reason {
+	if tr.Source == "github" {
+		switch {
+		case containsFold(e.ghSelf, tr.Actor.ID):
+			return &ticket.Reason{Code: "ownMessage"}
+		case tr.Channel == nil || !strings.EqualFold(tr.Channel.Address["repo"], e.repo.GitHub):
+			return &ticket.Reason{Code: "repoNotHeard"}
+		case tr.Human && !containsFold(e.repo.AllowedLogins, tr.Actor.ID):
+			return &ticket.Reason{Code: "notAllowed", Values: map[string]string{"login": tr.Actor.ID}}
+		}
+		return nil
+	}
 	switch {
 	case tr.Actor.ID == e.self:
 		return &ticket.Reason{Code: "ownMessage"}
@@ -160,6 +192,34 @@ func (e *Engine) filter(tr *ticket.Trigger) *ticket.Reason {
 	return nil
 }
 
+// botRound counts an automated reviewer's comment or review on a pull request and filters
+// it past its rounds. CI results are not rounds: they come once per commit.
+func (e *Engine) botRound(ctx context.Context, tx *sql.Tx, tr *ticket.Trigger) (*ticket.Reason, error) {
+	if tr.Source != "github" || tr.Human || (tr.Event != ticket.EventComment && tr.Event != ticket.EventReview) {
+		return nil, nil
+	}
+	k := "github:botrounds:" + tr.Threads[0].Key() + ":" + strings.ToLower(tr.Actor.ID)
+	v, _, err := store.GetKV(ctx, tx, k)
+	if err != nil {
+		return nil, err
+	}
+	n := 0
+	fmt.Sscan(v, &n)
+	if n >= botRounds {
+		return &ticket.Reason{Code: "botRoundLimit", Values: map[string]string{"login": tr.Actor.ID}}, nil
+	}
+	return nil, store.SetKV(ctx, tx, k, fmt.Sprint(n+1))
+}
+
+func containsFold(list []string, s string) bool {
+	for _, x := range list {
+		if strings.EqualFold(x, s) {
+			return true
+		}
+	}
+	return false
+}
+
 // fanout hands the Trigger to the Tickets subscribed to its Thread, without checking the
 // sender: a Subscription carries context and grants nothing.
 //
@@ -167,7 +227,10 @@ func (e *Engine) filter(tr *ticket.Trigger) *ticket.Reason {
 // Anything else is Input: delivered at once to a running Assignment, carried by the next
 // launch otherwise. A person's message on an idle Ticket starts the next Assignment. An
 // ended Ticket resumes under its unchanged Mandate when a person wrote it, unless a
-// person stopped that Ticket; bots and CI never wake one (ANALIZ.md §5.3).
+// person stopped that Ticket; bots, CI and GitHub never wake one (ANALIZ.md §5.3, §5.8a).
+// A failed CI run starts the next Assignment as a person's message does, so the coder
+// hears its pull request is red; the hop limit bounds that loop. A merged or closed pull
+// request ends the Ticket.
 func (e *Engine) fanout(ctx context.Context, tx *sql.Tx, tr *ticket.Trigger, th *ticket.Thread, now time.Time) ([]string, error) {
 	var reached []string
 	for _, id := range th.Subscriptions {
@@ -175,13 +238,25 @@ func (e *Engine) fanout(ctx context.Context, tx *sql.Tx, tr *ticket.Trigger, th 
 		if err != nil {
 			return nil, fmt.Errorf("engine: subscribed ticket %s: %w", id, err)
 		}
-		if tr.Actor.ID == e.coder {
+		switch {
+		case tr.Event == ticket.EventMerged || tr.Event == ticket.EventClosed:
+			ok, err := e.pullClosed(ctx, tx, t, tr, now)
+			if err != nil {
+				return nil, err
+			}
+			if !ok {
+				continue
+			}
+		case tr.Actor.ID == e.coder:
 			if !t.Live() || !e.applyReport(t, tr, now) {
 				continue
 			}
-		} else {
+			if err := e.subscribeFollows(ctx, tx, t); err != nil {
+				return nil, err
+			}
+		default:
 			if !t.Live() {
-				if !tr.Human || t.Ended.By == ticket.EndByHuman {
+				if !tr.Human || tr.Source != "buzz" || t.Ended.By == ticket.EndByHuman {
 					continue
 				}
 				if err := e.resume(ctx, tx, t, tr, now); err != nil {
@@ -195,7 +270,7 @@ func (e *Engine) fanout(ctx context.Context, tx *sql.Tx, tr *ticket.Trigger, th 
 				if _, err := e.effects.Enqueue(ctx, tx, effects.Delivery, "delivery:"+inputID, map[string]string{"ticket": t.ID}); err != nil {
 					return nil, err
 				}
-			case !pending(t) && tr.Human:
+			case !pending(t) && (tr.Human || tr.Event == ticket.EventCIFailure):
 				if err := e.newAssignment(ctx, tx, t, now); err != nil {
 					return nil, err
 				}
@@ -229,6 +304,9 @@ func (e *Engine) resume(ctx context.Context, tx *sql.Tx, t *ticket.Ticket, tr *t
 func (e *Engine) gate(ctx context.Context, tx *sql.Tx, tr *ticket.Trigger, th *ticket.Thread, now time.Time) (*ticket.Decision, error) {
 	d := &ticket.Decision{ID: ticket.Key("decision", tr.ID), TriggerIDs: []string{tr.ID}, At: now}
 	switch {
+	case tr.Source != "buzz":
+		// GitHub carries context to Tickets; it never asks for work (§5.8a).
+		d.Kind, d.Reason = ticket.DecisionIgnore, []ticket.Reason{{Code: "notCommandChannel"}}
 	case !tr.Human:
 		d.Kind, d.Reason = ticket.DecisionIgnore, []ticket.Reason{{Code: "noAdmissible"}}
 	case tr.Addressed == ticket.AddressedNone:

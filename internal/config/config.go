@@ -21,6 +21,7 @@ type Config struct {
 	StateDir string `yaml:"state_dir"`
 	API      API    `yaml:"api"`
 	Buzz     Buzz   `yaml:"buzz"`
+	GitHub   GitHub `yaml:"github"`
 	Repos    []Repo `yaml:"repos"`
 }
 
@@ -46,6 +47,17 @@ type Buzz struct {
 	// Channels are the channel ids the Source listens to; a mention elsewhere is filtered.
 	Channels []string      `yaml:"channels"`
 	Poll     time.Duration `yaml:"poll"`
+}
+
+// GitHub is the GitHub Source (§5.8): it follows only the pull requests of Ticket branches.
+// Without a CLI it is off and pull requests are followed only through coder reports.
+type GitHub struct {
+	// CLI is the path of the gh binary; it authenticates with GH_TOKEN from the environment.
+	CLI string `yaml:"cli"`
+	// SelfLogins are our own accounts (the coder's push account, the orchestrator's); what
+	// they write never becomes a Trigger (§5.8a).
+	SelfLogins []string      `yaml:"self_logins"`
+	Poll       time.Duration `yaml:"poll"`
 }
 
 // Repo is one repository's profile (§5.5a).
@@ -105,7 +117,7 @@ func Load(path string) (*Config, []string, error) {
 // Parse decodes and validates settings; unknown keys are errors so a typo cannot silently
 // drop a safety setting such as allowed_logins.
 func Parse(data []byte) (*Config, []string, error) {
-	c := &Config{Buzz: Buzz{Poll: 60 * time.Second}}
+	c := &Config{Buzz: Buzz{Poll: 60 * time.Second}, GitHub: GitHub{Poll: 60 * time.Second}}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(c); err != nil {
@@ -149,6 +161,14 @@ func (c *Config) validate() (warnings []string, err error) {
 	}
 	if len(c.Repos) == 0 {
 		fail("repos must list at least one repository")
+	}
+	switch {
+	case c.GitHub.CLI == "":
+		warnings = append(warnings, "github.cli is empty: pull requests are not polled, so PR comments, CI and merges do not reach Tickets")
+	case c.GitHub.Poll < 30*time.Second:
+		fail("github.poll must be at least 30s")
+	case len(c.GitHub.SelfLogins) == 0:
+		fail("github.self_logins must list our own accounts, or their comments would come back as Input")
 	}
 
 	seen := map[string]bool{}

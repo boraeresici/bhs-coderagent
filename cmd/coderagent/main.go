@@ -24,6 +24,7 @@ import (
 	"github.com/boraeresici/bhs-coderagent/internal/engine"
 	"github.com/boraeresici/bhs-coderagent/internal/outbox"
 	"github.com/boraeresici/bhs-coderagent/internal/source/buzz"
+	"github.com/boraeresici/bhs-coderagent/internal/source/github"
 	"github.com/boraeresici/bhs-coderagent/internal/store"
 	"github.com/boraeresici/bhs-coderagent/internal/ticket"
 )
@@ -77,7 +78,8 @@ func run(log *slog.Logger, configPath string) error {
 	eng := engine.New(st, q, time.Now, engine.Config{
 		Self: cfg.Buzz.SelfPubkey, Channels: cfg.Buzz.Channels,
 		Coder: cfg.Buzz.CoderPubkey, CoderName: cfg.Buzz.CoderName,
-		Repo: engine.Repo{GitHub: repo.GitHub, Base: repo.Base},
+		Repo:       engine.Repo{GitHub: repo.GitHub, Base: repo.Base, AllowedLogins: repo.AllowedLogins},
+		GitHubSelf: cfg.GitHub.SelfLogins,
 	})
 	src := &buzz.Source{
 		Reader:   cli,
@@ -85,6 +87,16 @@ func run(log *slog.Logger, configPath string) error {
 		Identity: buzz.Identity{Self: cfg.Buzz.SelfPubkey, Agents: agents},
 		Channels: cfg.Buzz.Channels,
 		Now:      time.Now,
+	}
+	// The GitHub Source is off without a gh CLI: pull requests are then followed only through
+	// coder reports, and their comments, CI and merges do not reach Tickets.
+	var gh *github.Source
+	ghTick := make(<-chan time.Time)
+	if cfg.GitHub.CLI != "" {
+		gh = &github.Source{API: &github.CLI{Runner: github.Exec{Path: cfg.GitHub.CLI}}, DB: st.DB(), Repo: repo.GitHub, Now: time.Now}
+		t := time.NewTicker(cfg.GitHub.Poll)
+		defer t.Stop()
+		ghTick = t.C
 	}
 	out := &sender{w: &buzz.Writer{Client: cli, Self: cfg.Buzz.SelfPubkey}, st: st, log: log, wait: map[string]backoff{}}
 
@@ -119,6 +131,8 @@ func run(log *slog.Logger, configPath string) error {
 			log.Info("coderagent stopping")
 			return nil
 		case <-poll.C:
+		case <-ghTick:
+			syncGitHub(ctx, log, gh, eng)
 		case <-flush.C:
 			runEffects(ctx, log, q, eng)
 			out.flush(ctx)
@@ -147,6 +161,27 @@ func sync(ctx context.Context, log *slog.Logger, src *buzz.Source, eng *engine.E
 	})
 	if err != nil && ctx.Err() == nil {
 		log.Error("sync", "err", err)
+	}
+}
+
+// syncGitHub binds Ticket branches' pull requests and reads the followed ones.
+func syncGitHub(ctx context.Context, log *slog.Logger, src *github.Source, eng *engine.Engine) {
+	err := src.Sync(ctx, eng.BindThread, func(ctx context.Context, tr *ticket.Trigger) error {
+		r, err := eng.Receive(ctx, tr)
+		if err != nil {
+			return err
+		}
+		if r.Outcome != engine.Duplicate {
+			attrs := []any{"trigger", tr.ID, "thread", tr.Threads[0].Key(), "event", tr.Event, "outcome", r.Outcome}
+			if r.Reason != nil {
+				attrs = append(attrs, "reason", r.Reason.Code)
+			}
+			log.Info("github", attrs...)
+		}
+		return nil
+	})
+	if err != nil && ctx.Err() == nil {
+		log.Error("github sync", "err", err)
 	}
 }
 

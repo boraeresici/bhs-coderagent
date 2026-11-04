@@ -16,6 +16,11 @@ buzz:
   channels: [coder-channel-id]      # dinlenen kanal id'leri (#coder) — biçimi A1 ölçümünde kesinleşir
   poll: 60s
 
+github:                             # §5.8 — yalnız Ticket dallarının PR'ları; token GH_TOKEN ortam değişkeninden
+  cli: /usr/local/bin/gh
+  self_logins: [bhs-coder-bot]      # bizim hesaplar (coder push, orkestratör): yazdıkları Trigger olmaz
+  poll: 60s
+
 repos:
   - name: tms
     github: owner/tms

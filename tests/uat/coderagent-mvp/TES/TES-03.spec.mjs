@@ -4,10 +4,13 @@ import { acklar, bitir, devirler, kokGonder } from '../kos.mjs';
 export default {
   id: 'TES-03', etiket: ['@pkt:coderagent-mvp', '@TES', '@P2', '@human', '@coder'],
   async run(t) {
-    const [k1, k2] = await t.adim(1, 'iki ayrı kök istek', () => [
-      kokGonder(t, `@coderagent UAT-TES-03-${t.z} birinci iş`),
-      kokGonder(t, `@coderagent UAT-TES-03-${t.z} ikinci iş`),
-    ]);
+    // Buzz created_at saniye çözünürlüklü: aynı saniyedeki iki kökün sırası event id'sine
+    // kalır (ANALIZ §9.1 A1). "İlk iş" anlamlı olsun diye ikincisi 2 sn sonra gider.
+    const [k1, k2] = await t.adim(1, 'iki ayrı kök istek', async () => {
+      const a = kokGonder(t, `@coderagent UAT-TES-03-${t.z} birinci iş`);
+      await t.bekle(2);
+      return [a, kokGonder(t, `@coderagent UAT-TES-03-${t.z} ikinci iş`)];
+    });
     await t.adim(2, 'poll + teslim', () => t.bekle(20));
     const [e1, e2] = await t.adim(3, 'iki thread\'i oku', () => [t.thread(t.env.CHANNEL, k1), t.thread(t.env.CHANNEL, k2)]);
     const tk = (evs) => { const a = acklar(t, evs)[0]; return a && t.ackTicket(a); };

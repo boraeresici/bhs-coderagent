@@ -1,0 +1,67 @@
+{
+  "paket_id": "coderagent-mvp",
+  "kosu": {
+    "id": "K-20261104-1804",
+    "mod": "run",
+    "at": "2026-11-04T18:04:00+03:00",
+    "BE": "67a321c+F5",
+    "FE": "—",
+    "kapsam": "tümü (13 senaryo) — F5 regresyon",
+    "rapor": "uat/paketler/coderagent-mvp/reports/2026-11-04-1804/uat-report.md"
+  },
+  "sonuclar": {
+    "GIR-01": {
+      "status": "pass",
+      "note": "4/4 kontrol geçti; F5 derlemesi regresyon"
+    },
+    "GIR-02": {
+      "status": "pass",
+      "note": "3/3 kontrol geçti; F5 derlemesi regresyon"
+    },
+    "GIR-03": {
+      "status": "pass",
+      "note": "2/2 kontrol geçti; F5 derlemesi regresyon"
+    },
+    "GIR-04": {
+      "status": "pass",
+      "note": "3/3 kontrol geçti; F5 derlemesi regresyon"
+    },
+    "GIR-05": {
+      "status": "pass",
+      "note": "3/3 kontrol geçti; F5 derlemesi regresyon"
+    },
+    "TES-01": {
+      "status": "pass",
+      "note": "4/4 kontrol geçti; F5 derlemesi regresyon"
+    },
+    "TES-02": {
+      "status": "pass",
+      "note": "4/4 kontrol geçti; F5 derlemesi regresyon"
+    },
+    "TES-03": {
+      "status": "pass",
+      "note": "ilk denemede test hatası (iki kök aynı saniyede → sıra event id’sine kaldı); spec düzeltildi, 2/2 geçti"
+    },
+    "RAP-01": {
+      "status": "pass",
+      "note": "2/2 kontrol geçti; F5 derlemesi regresyon"
+    },
+    "RAP-02": {
+      "status": "pass",
+      "note": "1/1 kontrol geçti; F5 derlemesi regresyon"
+    },
+    "RAP-03": {
+      "status": "pass",
+      "note": "2/2 kontrol geçti; F5 derlemesi regresyon"
+    },
+    "RAP-04": {
+      "status": "pass",
+      "note": "3/3 kontrol geçti; F5 derlemesi regresyon"
+    },
+    "DAY-01": {
+      "status": "pass",
+      "note": "2/2 kontrol geçti; F5 derlemesi regresyon"
+    }
+  },
+  "bulgular": []
+}
