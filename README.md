@@ -1,89 +1,99 @@
 # bhs-coderagent
 
-[buzz-hermes-stack](https://github.com/boraeresici/buzz-hermes-stack) (BHS) için kod işi
-yürüten bir orkestratör. Buzz'da bir kişi `@coderagent` diye bir iş ister; istek bir
-**Ticket** olur, `coder` Hermes ajanına devredilir, ajanın raporu ve açtığı PR aynı Buzz
-thread'ine bağlanır. PR merge edilince Ticket kapanır.
+> 🇹🇷 [Türkçe sürüm: **README-tr.md**](README-tr.md)
 
-Kavram modeli [deepseek-ai/dsh-superagent-prototype](https://github.com/deepseek-ai/dsh-superagent-prototype)'tan
-uyarlanmıştır (Source, Trigger, Thread, Mandate, Ticket, Assignment); eşleme
-[UPSTREAM.md](UPSTREAM.md)'de, upstream lisansı [NOTICE](NOTICE)'ta.
+An orchestrator that runs coding work for
+[buzz-hermes-stack](https://github.com/boraeresici/buzz-hermes-stack) (BHS). Someone asks
+for work in Buzz with `@coderagent`; the request becomes a **Ticket**, which is handed to
+the `coder` Hermes agent. The agent's report and the pull request it opens are tied back to
+the same Buzz thread. When the pull request is merged, the Ticket closes.
 
-## Nasıl çalışır
+The concept model is adapted from
+[deepseek-ai/dsh-superagent-prototype](https://github.com/deepseek-ai/dsh-superagent-prototype)
+(Source, Trigger, Thread, Mandate, Ticket, Assignment). The mapping is in
+[UPSTREAM.md](UPSTREAM.md), the upstream license in [NOTICE](NOTICE).
+
+## How it works
 
 ```
 Buzz #coder ──@coderagent──▶ Source ──Trigger──▶ engine (gate) ──▶ Ticket ──▶ "Aldım" (thread)
                                                      │
-                                                     └─▶ devir: @coder + dal agent/<kısa ad>
-coder ──rapor bloğu──▶ engine ──▶ ready+PR → insan incelemesi · blocked/failed → insan
-GitHub PR ──yorum/review/CI──▶ engine ──▶ coder'a Input · merge/close → Ticket biter
+                                                     └─▶ handoff: @coder + branch agent/<short name>
+coder ──report block──▶ engine ──▶ ready+PR → human review · blocked/failed → a person
+GitHub PR ──comment/review/CI──▶ engine ──▶ Input to the coder · merge/close → Ticket ends
 ```
 
-- **Tek komut kanalı Buzz'dır.** İş yalnız dinlenen kanalda, bir insanın mention'ıyla açılır.
-  Bot ve ajan mesajları iş açamaz.
-- **GitHub yalnız bağlam taşır.** Yalnız Ticket dallarının PR'ları okunur. PR yorumu coder'a
-  ancak yazarı repo profilindeki `allowed_logins` listesindeyse gider; liste boşsa hiç kimseninki
-  gitmez. Görünürlükten bağımsızdır, collaborator izni sayılmaz. Bot reviewer'lar PR başına
-  3 tur alır; CI'dan yalnız sonuç ve bağlantı gelir.
-- **Güvenilmeyen metin talimat olmaz.** İstek ve yorum metni coder'a alıntı ya da çitli blok
-  içinde, "güvenilmeyen veri" başlığıyla gider. İşin durumunu yalnız coder'ın kendi thread'ine
-  yazdığı rapor bloğu değiştirir.
-- **Kalıcı ve tekrar güvenli.** Durum tek bir SQLite dosyasında. Her yan etki karardan önce
-  kaydedilir; gönderilen mesajlar gizli işaret taşır, bu yüzden yeniden başlatma bir mesajı
-  ikinci kez göndermez.
-- **Hata yolu.** Başarısız gönderim artan aralıklarla yeniden denenir. 3 ardışık hatada
-  Ticket bir insanı bekler (`person/delivery`). Ticket başına hop sınırı ve thread başına
-  hız sınırı döngüleri keser.
+- **Buzz is the only command channel.** Work starts only from a person's mention on a
+  listened channel. Bot and agent messages never start work.
+- **GitHub carries context only.** Only the pull requests of Ticket branches are read. A
+  pull request comment reaches the coder only if its author is in the repository profile's
+  `allowed_logins`; an empty list lets no one through. The rule ignores repository
+  visibility and does not fall back to collaborator rights. Bot reviewers get three rounds
+  per pull request; from CI, only the result and its links come through.
+- **Untrusted text never becomes an instruction.** Request and comment text reaches the
+  coder quoted or fenced, under an "untrusted data" header. Only a report block the coder
+  writes on its own thread changes a Ticket's state.
+- **Durable and safe to repeat.** State lives in one SQLite file. Every side effect is
+  recorded before it runs, and each sent message carries a hidden marker, so a restart
+  never sends a message twice.
+- **Failure handling.** Failed sends are retried with growing backoff. After three failures
+  in a row the Ticket waits on a person (`person/delivery`). A per-Ticket hop limit and a
+  per-thread rate limit stop loops.
 
-## Durum
+Messages the orchestrator posts in Buzz are in Turkish, as is most of the in-repo
+documentation.
 
-MVP dilimleri 1–4 kodda: Buzz Source, devir ve rapor, GitHub Source, hata yolu, panel API'si,
-üretim imajı. Yerel relay'de uçtan uca koşan 13 kabul senaryosu geçiyor. Sırada BHS
-panelindeki Tickets sayfası ve canlı (VPS) kurulum var.
+## Status
 
-## Geliştirme
+MVP slices 1–4 are implemented: the Buzz Source, handoff and reports, the GitHub Source,
+failure handling, the panel API and the production image. 13 acceptance scenarios pass
+end to end against a local relay. Next: the Tickets page in the BHS panel and the live
+(VPS) deployment.
+
+## Development
 
 Go 1.26+.
 
 ```sh
 make check        # gofmt + vet + test
-make build        # bin/coderagent (bu makine)
+make build        # bin/coderagent (this machine)
 make build-arm64  # bin/coderagent-linux-arm64
 ```
 
-Yerel Buzz relay'i ve orkestratör (Docker gerekir; BHS reposu yan dizinde olmalı):
+Local Buzz relay and orchestrator (needs Docker, and the BHS repository in a sibling
+directory):
 
 ```sh
 scripts/dev-relay.sh init && scripts/dev-relay.sh up && scripts/dev-relay.sh seed
-scripts/dev-relay.sh orchestrator                 # imajı derler, orkestratörü başlatır
-scripts/dev-relay.sh buzz human messages send ... # human | coder | outsider kimlikleriyle
-scripts/dev-relay.sh api state                    # orkestratör API'si
+scripts/dev-relay.sh orchestrator                 # builds the image, starts the orchestrator
+scripts/dev-relay.sh buzz human messages send ... # as human | coder | outsider
+scripts/dev-relay.sh api state                    # the orchestrator API
 ```
 
-Kabul testleri (`buzz-cli` yüzeyi, bağımlılıksız Node):
+Acceptance tests (`buzz-cli` surface, dependency-free Node):
 
 ```sh
-node tests/uat/coderagent-mvp/kos.mjs --rapor uat/paketler/coderagent-mvp/reports/<tarih>
+node tests/uat/coderagent-mvp/kos.mjs --rapor uat/paketler/coderagent-mvp/reports/<date>
 ```
 
-## Yapı
+## Layout
 
-| Yol | İçerik |
+| Path | Contents |
 |---|---|
-| `internal/ticket` | Alan modeli, aşama tablosu, kimlik anahtarları |
-| `internal/engine` | Tek yazar: gate, fan-out, devir, rapor, GitHub kuralları, panel eylemleri |
-| `internal/source/buzz` | Buzz okuma/yazma (buzz CLI) |
-| `internal/source/github` | Ticket PR'ları (`gh api` ya da HTTPS) |
-| `internal/store`, `effects`, `outbox` | SQLite, iş kuyruğu, sıralı ve işaretli giden mesajlar |
-| `internal/api` | `/orchestrator/api/` (bearer) ve `/healthz` |
-| `deploy/` | Üretim imajı ve kurulum notları |
-| `uat/`, `tests/uat/` | Kabul testi senaryoları, koşucu ve raporlar |
+| `internal/ticket` | Domain model, stage table, identity keys |
+| `internal/engine` | The single writer: gate, fan-out, handoff, reports, GitHub rules, panel actions |
+| `internal/source/buzz` | Reading and writing Buzz (buzz CLI) |
+| `internal/source/github` | Ticket pull requests (`gh api` or HTTPS) |
+| `internal/store`, `effects`, `outbox` | SQLite, work queue, ordered and marked outgoing messages |
+| `internal/api` | `/orchestrator/api/` (bearer token) and `/healthz` |
+| `deploy/` | Production image and deployment notes |
+| `uat/`, `tests/uat/` | Acceptance test scenarios, runner and reports |
 
-## Ayarlar
+## Configuration
 
-[config.example.yaml](config.example.yaml): Buzz kimlikleri ve kanallar, GitHub okuma yolu,
-repo profilleri (taban dal, `allowed_logins`). Gizli değerler config'te değil, ortam
-değişkenlerindedir. Kurulum: [deploy/README.md](deploy/README.md).
+[config.example.yaml](config.example.yaml): Buzz identities and channels, how GitHub is
+read, repository profiles (base branch, `allowed_logins`). Secrets are not in the config;
+they come from environment variables. Deployment: [deploy/README.md](deploy/README.md).
 
-Kod yorumlarındaki `ANALIZ.md §…` atıfları yerelde tutulan tasarım belgesine işaret eder;
-bu belge repoda yayınlanmaz.
+`ANALIZ.md §…` references in code comments point to a design document kept locally; it is
+not published in this repository.
