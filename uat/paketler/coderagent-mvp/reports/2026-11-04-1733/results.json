@@ -1,0 +1,67 @@
+{
+  "paket_id": "coderagent-mvp",
+  "kosu": {
+    "id": "K-20261104-1733",
+    "mod": "run",
+    "at": "2026-11-04T17:33:00+03:00",
+    "BE": "a612ab4",
+    "FE": "—",
+    "kapsam": "tümü (13 senaryo)",
+    "rapor": "uat/paketler/coderagent-mvp/reports/2026-11-04-1733/uat-report.md"
+  },
+  "sonuclar": {
+    "GIR-01": {
+      "status": "pass",
+      "note": "4/4 kontrol geçti (outsider negatif dahil); buzz-cli, yerel relay"
+    },
+    "GIR-02": {
+      "status": "pass",
+      "note": "3/3 kontrol geçti (outsider negatif dahil); buzz-cli, yerel relay"
+    },
+    "GIR-03": {
+      "status": "pass",
+      "note": "2/2 kontrol geçti; buzz-cli, yerel relay"
+    },
+    "GIR-04": {
+      "status": "pass",
+      "note": "3/3 kontrol geçti (outsider negatif dahil); buzz-cli, yerel relay"
+    },
+    "GIR-05": {
+      "status": "pass",
+      "note": "3/3 kontrol geçti (outsider negatif dahil); buzz-cli, yerel relay"
+    },
+    "TES-01": {
+      "status": "pass",
+      "note": "4/4 kontrol geçti; buzz-cli, yerel relay"
+    },
+    "TES-02": {
+      "status": "pass",
+      "note": "4/4 kontrol geçti (outsider negatif dahil); buzz-cli, yerel relay"
+    },
+    "TES-03": {
+      "status": "pass",
+      "note": "2/2 kontrol geçti; buzz-cli, yerel relay"
+    },
+    "RAP-01": {
+      "status": "pass",
+      "note": "2/2 kontrol geçti; buzz-cli, yerel relay"
+    },
+    "RAP-02": {
+      "status": "pass",
+      "note": "1/1 kontrol geçti; buzz-cli, yerel relay"
+    },
+    "RAP-03": {
+      "status": "pass",
+      "note": "2/2 kontrol geçti (outsider negatif dahil); buzz-cli, yerel relay"
+    },
+    "RAP-04": {
+      "status": "pass",
+      "note": "3/3 kontrol geçti (outsider negatif dahil); buzz-cli, yerel relay"
+    },
+    "DAY-01": {
+      "status": "pass",
+      "note": "2/2 kontrol geçti; buzz-cli, yerel relay"
+    }
+  },
+  "bulgular": []
+}
