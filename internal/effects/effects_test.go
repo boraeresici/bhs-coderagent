@@ -156,3 +156,24 @@ func TestQueueSurvivesRestart(t *testing.T) {
 		t.Fatal("a queued effect must survive a restart")
 	}
 }
+
+func TestReleaseLeasesAfterCrash(t *testing.T) {
+	q, c, _, _ := setup(t)
+	for _, k := range []string{"a", "b", "c"} {
+		q.Enqueue(ctx, q.db, Delivery, k, nil)
+	}
+	es, _ := q.Claim(ctx, Delivery, 3)
+	q.Fail(ctx, es[1].ID, errors.New("relay down")) // backing off, not leased
+	q.Done(ctx, es[2].ID)
+	c.advance(time.Second)
+	if n, err := q.ReleaseLeases(ctx); err != nil || n != 1 {
+		t.Fatalf("released %d, %v; want only the leased one", n, err)
+	}
+	got := claimOne(t, q, Delivery)
+	if got == nil || got.ID != es[0].ID {
+		t.Fatalf("the released effect must be due now: %+v", got)
+	}
+	if n, _ := q.ReleaseLeases(ctx); n != 1 {
+		t.Errorf("claiming again leases it again: %d", n)
+	}
+}

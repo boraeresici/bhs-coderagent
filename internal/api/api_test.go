@@ -165,3 +165,27 @@ func TestActions(t *testing.T) {
 		t.Errorf("an action answers with the Ticket: %s", w.Body)
 	}
 }
+
+func TestHealth(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 11, 4, 10, 0, 0, 0, time.UTC)
+	h := NewHealth(st.DB(), "v1", 5*time.Minute, func() time.Time { return now })
+	check := func(code int, want string) {
+		t.Helper()
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest("GET", "/healthz", nil))
+		if w.Code != code || !strings.Contains(w.Body.String(), want) {
+			t.Errorf("%d %s, want %d with %s", w.Code, w.Body, code, want)
+		}
+	}
+	check(200, `"ok":true`) // just started
+	now = now.Add(6 * time.Minute)
+	check(503, "no successful Buzz poll for 6m0s")
+	h.Beat()
+	check(200, `"last_poll":"2026-11-04T10:06:00Z"`)
+	st.Close()
+	check(503, "store does not answer")
+}

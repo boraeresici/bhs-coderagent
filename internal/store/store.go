@@ -162,6 +162,8 @@ CREATE TABLE kv (
 ALTER TABLE outbox ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE outbox ADD COLUMN next_at INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE outbox ADD COLUMN last_error TEXT;`,
+	// 4: a claimed effect is marked, so a restart can hand it back at once (F6.4).
+	`ALTER TABLE effect ADD COLUMN leased INTEGER NOT NULL DEFAULT 0;`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {

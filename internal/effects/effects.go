@@ -126,7 +126,7 @@ func (q *Queue) Claim(ctx context.Context, kind string, limit int) ([]Effect, er
 			return err
 		}
 		for _, e := range out {
-			if _, err := tx.ExecContext(ctx, `UPDATE effect SET next_at = ? WHERE id = ?`, now.Add(Lease).UnixMilli(), e.ID); err != nil {
+			if _, err := tx.ExecContext(ctx, `UPDATE effect SET next_at = ?, leased = 1 WHERE id = ?`, now.Add(Lease).UnixMilli(), e.ID); err != nil {
 				return err
 			}
 		}
@@ -137,7 +137,7 @@ func (q *Queue) Claim(ctx context.Context, kind string, limit int) ([]Effect, er
 
 // Done marks an effect finished.
 func (q *Queue) Done(ctx context.Context, id int64) error {
-	return q.set(ctx, `UPDATE effect SET state = 'done', last_error = NULL WHERE id = ? AND state = 'pending'`, id, id)
+	return q.set(ctx, `UPDATE effect SET state = 'done', leased = 0, last_error = NULL WHERE id = ? AND state = 'pending'`, id, id)
 }
 
 // Fail counts a failed attempt and schedules the next one by the kind's backoff. It
@@ -160,7 +160,7 @@ func (q *Queue) Fail(ctx context.Context, id int64, cause error) (dead bool, err
 		if dead {
 			state = "dead"
 		}
-		_, err = tx.ExecContext(ctx, `UPDATE effect SET state = ?, attempts = ?, next_at = ?, last_error = ? WHERE id = ?`,
+		_, err = tx.ExecContext(ctx, `UPDATE effect SET state = ?, attempts = ?, next_at = ?, leased = 0, last_error = ? WHERE id = ?`,
 			state, attempts, next, cause.Error(), id)
 		return err
 	})
@@ -170,7 +170,19 @@ func (q *Queue) Fail(ctx context.Context, id int64, cause error) (dead bool, err
 // Later puts an effect back for a later time without counting an attempt: what it needs
 // is not ready yet, which is no failure (upstream Later).
 func (q *Queue) Later(ctx context.Context, id int64, at time.Time) error {
-	return q.set(ctx, `UPDATE effect SET next_at = ? WHERE id = ? AND state = 'pending'`, id, at.UnixMilli(), id)
+	return q.set(ctx, `UPDATE effect SET next_at = ?, leased = 0 WHERE id = ? AND state = 'pending'`, id, at.UnixMilli(), id)
+}
+
+// ReleaseLeases hands every claimed effect back to the queue at once. Call it at startup:
+// the store's directory lock means no other process holds a lease, so a lease left from
+// before a crash would otherwise wait out Lease. It returns how many were released.
+func (q *Queue) ReleaseLeases(ctx context.Context) (int, error) {
+	res, err := q.db.ExecContext(ctx, `UPDATE effect SET next_at = ?, leased = 0 WHERE state = 'pending' AND leased = 1`, q.now().UnixMilli())
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
 }
 
 // Backoff is the wait after the given number of failed attempts.

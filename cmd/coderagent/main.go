@@ -73,6 +73,13 @@ func run(log *slog.Logger, configPath string) error {
 	}
 	cli := &buzz.CLI{Runner: buzz.Exec{Path: cfg.Buzz.CLI}}
 	q := effects.New(st.DB(), time.Now, effects.DefaultPolicies)
+	// The directory lock means no other process holds a lease: what was claimed before a
+	// crash runs now instead of after effects.Lease (F6.4).
+	if n, err := q.ReleaseLeases(ctx); err != nil {
+		return err
+	} else if n > 0 {
+		log.Info("recovered", "effects", n)
+	}
 	// The MVP works in one repository (ANALIZ.md §10): the first profile.
 	repo := cfg.Repos[0]
 	eng := engine.New(st, q, time.Now, engine.Config{
@@ -111,7 +118,11 @@ func run(log *slog.Logger, configPath string) error {
 	if err != nil {
 		return fmt.Errorf("%w: set %s", err, cfg.API.TokenEnv)
 	}
-	srv := &http.Server{Addr: cfg.API.Listen, Handler: handler, ReadHeaderTimeout: 5 * time.Second}
+	health := api.NewHealth(st.DB(), version, max(5*cfg.Buzz.Poll, 2*time.Minute), time.Now)
+	mux := http.NewServeMux()
+	mux.Handle(api.Prefix, handler)
+	mux.Handle("GET /healthz", health)
+	srv := &http.Server{Addr: cfg.API.Listen, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Error("api", "err", err)
@@ -130,7 +141,9 @@ func run(log *slog.Logger, configPath string) error {
 	flush := time.NewTicker(2 * time.Second)
 	defer flush.Stop()
 	for {
-		sync(ctx, log, src, eng)
+		if sync(ctx, log, src, eng) {
+			health.Beat()
+		}
 		runEffects(ctx, log, q, eng)
 		out.flush(ctx)
 		select {
@@ -148,7 +161,8 @@ func run(log *slog.Logger, configPath string) error {
 	}
 }
 
-func sync(ctx context.Context, log *slog.Logger, src *buzz.Source, eng *engine.Engine) {
+// sync polls Buzz once and reports whether every channel was read.
+func sync(ctx context.Context, log *slog.Logger, src *buzz.Source, eng *engine.Engine) bool {
 	err := src.Sync(ctx, func(ctx context.Context, tr *ticket.Trigger) error {
 		r, err := eng.Receive(ctx, tr)
 		if err != nil {
@@ -169,6 +183,7 @@ func sync(ctx context.Context, log *slog.Logger, src *buzz.Source, eng *engine.E
 	if err != nil && ctx.Err() == nil {
 		log.Error("sync", "err", err)
 	}
+	return err == nil
 }
 
 // syncGitHub binds Ticket branches' pull requests and reads the followed ones.

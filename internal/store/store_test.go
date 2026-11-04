@@ -37,7 +37,8 @@ func TestMigratesAnOlderDatabase(t *testing.T) {
 	s := open(t, dir)
 	// Roll the database back to schema 1, as a build before migration 2 left it.
 	if _, err := s.DB().Exec(`ALTER TABLE outbox DROP COLUMN mentions; ALTER TABLE outbox DROP COLUMN attempts;
-		ALTER TABLE outbox DROP COLUMN next_at; ALTER TABLE outbox DROP COLUMN last_error; PRAGMA user_version = 1`); err != nil {
+		ALTER TABLE outbox DROP COLUMN next_at; ALTER TABLE outbox DROP COLUMN last_error;
+		ALTER TABLE effect DROP COLUMN leased; PRAGMA user_version = 1`); err != nil {
 		t.Fatal(err)
 	}
 	s.Close()

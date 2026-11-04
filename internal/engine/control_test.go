@@ -31,7 +31,8 @@ func TestRetryBlockedStartsNextAssignmentOnSameBranch(t *testing.T) {
 	}
 	f.outbox()
 	f.launch(id)
-	if ms := f.outbox(); len(ms) != 1 || !strings.Contains(ms[0].Body, "Devam") || !strings.Contains(ms[0].Body, "agent/"+name) {
+	if ms := f.outbox(); len(ms) != 1 || !strings.Contains(ms[0].Body, "Devam") || !strings.Contains(ms[0].Body, "agent/"+name) ||
+		!strings.Contains(ms[0].Body, "tekrarlamadan önce dizini, git geçmişini ve GitHub") {
 		t.Fatalf("relaunch = %+v", ms)
 	}
 }

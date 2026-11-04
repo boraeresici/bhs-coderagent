@@ -207,8 +207,10 @@ func (h *handler) pause(paused bool) http.HandlerFunc {
 
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(v)
+	writeJSONBody(w, v)
 }
+
+func writeJSONBody(w http.ResponseWriter, v any) { json.NewEncoder(w).Encode(v) }
 
 func writeError(w http.ResponseWriter, code int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
