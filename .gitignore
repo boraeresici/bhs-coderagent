@@ -1,0 +1,11 @@
+/bin/
+/dist/
+*.sqlite
+*.sqlite-*
+/state/
+.env
+.env.*
+!.env.example
+# uat-kabul-testi: defter kopyası local modda repoya girmez (ANALIZ §5.12)
+uat/paketler/*/source/
+.auth/
