@@ -13,3 +13,5 @@ uat/paketler/*/source/
 # yerel geliştirme ortamı (scripts/dev-relay.sh)
 deploy/dev/.env
 deploy/dev/work/
+# uat-kabul-testi: taslak sayfa JSON'dan üretilir (yeni-defter.mjs)
+uat/paketler/*/taslak/*.html
