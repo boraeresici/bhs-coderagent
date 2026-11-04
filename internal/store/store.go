@@ -157,6 +157,11 @@ CREATE TABLE kv (
 `,
 	// 2: an outbox message can tag pubkeys (the assignment mentions the coder, F4.1).
 	`ALTER TABLE outbox ADD COLUMN mentions TEXT NOT NULL DEFAULT '[]';`,
+	// 3: a failed send waits and is counted, across restarts (F6.1).
+	`
+ALTER TABLE outbox ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE outbox ADD COLUMN next_at INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE outbox ADD COLUMN last_error TEXT;`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {

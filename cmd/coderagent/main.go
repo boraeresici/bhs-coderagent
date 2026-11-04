@@ -105,7 +105,7 @@ func run(log *slog.Logger, configPath string) error {
 		defer t.Stop()
 		ghTick = t.C
 	}
-	out := &sender{w: &buzz.Writer{Client: cli, Self: cfg.Buzz.SelfPubkey}, st: st, log: log, wait: map[string]backoff{}}
+	out := &sender{w: &buzz.Writer{Client: cli, Self: cfg.Buzz.SelfPubkey}, st: st, eng: eng, log: log}
 
 	handler, err := api.New(st, os.Getenv(cfg.API.TokenEnv))
 	if err != nil {
@@ -223,6 +223,9 @@ func runEffects(ctx context.Context, log *slog.Logger, q *effects.Queue, eng *en
 			default:
 				dead, ferr := q.Fail(ctx, ef.ID, err)
 				log.Error("effect failed", "kind", kind, "key", ef.Key, "dead", dead, "err", err)
+				if ferr == nil && dead {
+					ferr = eng.EffectDead(ctx, kind, payload.Ticket, payload.Assignment, err)
+				}
 				err = ferr
 			}
 			if err != nil {
@@ -232,18 +235,15 @@ func runEffects(ctx context.Context, log *slog.Logger, q *effects.Queue, eng *en
 	}
 }
 
-// sender posts the outbox in conversation order. A conversation whose head fails waits
-// with a doubling delay up to five minutes; F6.1 moves this onto the effects queue.
+// sender posts the outbox in conversation order. A failed head waits by the outbox's
+// backoff, which survives a restart; from the third failure in a row its Ticket waits on a
+// person (person/delivery), and the next success clears that (F6.1). A thread that got
+// outbox.RateLimit messages in the window waits (F6.2).
 type sender struct {
-	w    *buzz.Writer
-	st   *store.Store
-	log  *slog.Logger
-	wait map[string]backoff
-}
-
-type backoff struct {
-	until time.Time
-	delay time.Duration
+	w   *buzz.Writer
+	st  *store.Store
+	eng *engine.Engine
+	log *slog.Logger
 }
 
 func (s *sender) flush(ctx context.Context) {
@@ -253,7 +253,17 @@ func (s *sender) flush(ctx context.Context) {
 		return
 	}
 	for _, m := range heads {
-		if b, ok := s.wait[m.Conversation]; ok && time.Now().Before(b.until) {
+		if time.Now().Before(m.NextAt) {
+			continue
+		}
+		if wait, err := outbox.RateWait(ctx, s.st.DB(), time.Now(), m.Conversation); err != nil || wait > 0 {
+			if err == nil {
+				s.log.Info("send later", "message", m.ID, "reason", "thread rate limit", "wait", wait.String())
+				err = outbox.Later(ctx, s.st.DB(), m.ID, time.Now().Add(wait))
+			}
+			if err != nil {
+				s.log.Error("outbox", "message", m.ID, "err", err)
+			}
 			continue
 		}
 		receipt, err := s.w.Deliver(ctx, m)
@@ -261,14 +271,21 @@ func (s *sender) flush(ctx context.Context) {
 			err = outbox.MarkSent(ctx, s.st.DB(), time.Now(), m.ID, receipt)
 		}
 		if err != nil {
-			b := s.wait[m.Conversation]
-			b.delay = min(max(2*b.delay, 5*time.Second), 5*time.Minute)
-			b.until = time.Now().Add(b.delay)
-			s.wait[m.Conversation] = b
-			s.log.Error("send", "message", m.ID, "retry_in", b.delay.String(), "err", err)
+			n, ferr := outbox.Fail(ctx, s.st.DB(), time.Now(), m.ID, err)
+			if ferr == nil {
+				ferr = s.eng.SendFailed(ctx, m.TicketID, n, err)
+			}
+			s.log.Error("send", "message", m.ID, "attempts", n, "retry_in", outbox.Backoff(n).String(), "err", err)
+			if ferr != nil {
+				s.log.Error("outbox", "message", m.ID, "err", ferr)
+			}
 			continue
 		}
-		delete(s.wait, m.Conversation)
+		if m.Attempts > 0 {
+			if err := s.eng.SendSucceeded(ctx, m.TicketID); err != nil {
+				s.log.Error("outbox", "message", m.ID, "err", err)
+			}
+		}
 		s.log.Info("sent", "message", m.ID, "event", receipt)
 	}
 }

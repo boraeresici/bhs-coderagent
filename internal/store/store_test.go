@@ -36,7 +36,8 @@ func TestMigratesAnOlderDatabase(t *testing.T) {
 	dir := t.TempDir()
 	s := open(t, dir)
 	// Roll the database back to schema 1, as a build before migration 2 left it.
-	if _, err := s.DB().Exec("ALTER TABLE outbox DROP COLUMN mentions; PRAGMA user_version = 1"); err != nil {
+	if _, err := s.DB().Exec(`ALTER TABLE outbox DROP COLUMN mentions; ALTER TABLE outbox DROP COLUMN attempts;
+		ALTER TABLE outbox DROP COLUMN next_at; ALTER TABLE outbox DROP COLUMN last_error; PRAGMA user_version = 1`); err != nil {
 		t.Fatal(err)
 	}
 	s.Close()
@@ -47,8 +48,8 @@ func TestMigratesAnOlderDatabase(t *testing.T) {
 	if v != SchemaVersion {
 		t.Fatalf("user_version = %d, want %d", v, SchemaVersion)
 	}
-	if _, err := s.DB().Exec(`SELECT mentions FROM outbox`); err != nil {
-		t.Fatalf("migration 2 not applied: %v", err)
+	if _, err := s.DB().Exec(`SELECT mentions, attempts, next_at, last_error FROM outbox`); err != nil {
+		t.Fatalf("migrations 2–3 not applied: %v", err)
 	}
 }
 

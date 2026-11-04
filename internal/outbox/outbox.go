@@ -31,6 +31,35 @@ type Message struct {
 	// Mentions are identities the message tags (Buzz pubkeys), so their agent is notified.
 	Mentions []string
 	Seq      int64
+	// Attempts counts failed sends since the last success; NextAt is when the next may run.
+	Attempts int
+	NextAt   time.Time
+}
+
+// Backoff is the wait after the given number of failed sends: 5s doubling up to 5m.
+func Backoff(attempts int) time.Duration {
+	d := 5 * time.Second
+	for i := 1; i < attempts && d < 5*time.Minute; i++ {
+		d *= 2
+	}
+	return min(d, 5*time.Minute)
+}
+
+// Fail records a failed send of a pending message and when to try again. It returns the
+// number of failures so far; the conversation waits behind its head meanwhile.
+func Fail(ctx context.Context, q store.Querier, now time.Time, id string, cause error) (int, error) {
+	var attempts int
+	err := q.QueryRowContext(ctx, `
+UPDATE outbox SET attempts = attempts + 1, last_error = ? WHERE id = ? AND state = 'pending'
+RETURNING attempts`, cause.Error(), id).Scan(&attempts)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, fmt.Errorf("outbox: no pending message %q", id)
+	}
+	if err != nil {
+		return 0, err
+	}
+	_, err = q.ExecContext(ctx, `UPDATE outbox SET next_at = ? WHERE id = ?`, now.Add(Backoff(attempts)).UnixMilli(), id)
+	return attempts, err
 }
 
 // Marker is the hidden tag appended to a message body (§5.4). Buzz renders message text
@@ -82,7 +111,7 @@ ON CONFLICT(id) DO NOTHING`,
 // message of that conversation that may be sent now.
 func Heads(ctx context.Context, q store.Querier) ([]Message, error) {
 	rows, err := q.QueryContext(ctx, `
-SELECT o.id, COALESCE(o.ticket_id, ''), o.conversation, o.body, o.mentions, o.seq FROM outbox o
+SELECT o.id, COALESCE(o.ticket_id, ''), o.conversation, o.body, o.mentions, o.seq, o.attempts, o.next_at FROM outbox o
 WHERE o.state = 'pending'
   AND o.seq = (SELECT MIN(seq) FROM outbox WHERE conversation = o.conversation AND state = 'pending')
 ORDER BY o.created_at, o.conversation`)
@@ -94,9 +123,11 @@ ORDER BY o.created_at, o.conversation`)
 	for rows.Next() {
 		var m Message
 		var mentions string
-		if err := rows.Scan(&m.ID, &m.TicketID, &m.Conversation, &m.Body, &mentions, &m.Seq); err != nil {
+		var next int64
+		if err := rows.Scan(&m.ID, &m.TicketID, &m.Conversation, &m.Body, &mentions, &m.Seq, &m.Attempts, &next); err != nil {
 			return nil, err
 		}
+		m.NextAt = time.UnixMilli(next)
 		if err := json.Unmarshal([]byte(mentions), &m.Mentions); err != nil {
 			return nil, err
 		}
@@ -133,5 +164,42 @@ func MarkSent(ctx context.Context, q store.Querier, now time.Time, id, receipt s
 		return ErrNotHead
 	}
 	_, err = q.ExecContext(ctx, `UPDATE outbox SET state = 'sent', receipt = ?, sent_at = ? WHERE id = ?`, receipt, now.UnixMilli(), id)
+	return err
+}
+
+// Rate limits what one conversation receives (§5.7): at most RateLimit messages in any
+// RateWindow. Past it the head waits; nothing is dropped.
+const (
+	RateLimit  = 10
+	RateWindow = 10 * time.Minute
+)
+
+// RateWait returns how long a conversation must wait before its next message, zero when
+// it may send now. The count comes from sent messages, so it holds across restarts.
+func RateWait(ctx context.Context, q store.Querier, now time.Time, conversation string) (time.Duration, error) {
+	rows, err := q.QueryContext(ctx, `SELECT sent_at FROM outbox WHERE conversation = ? AND state = 'sent' AND sent_at > ?
+ORDER BY sent_at DESC LIMIT ?`, conversation, now.Add(-RateWindow).UnixMilli(), RateLimit)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	var sent []int64
+	for rows.Next() {
+		var at int64
+		if err := rows.Scan(&at); err != nil {
+			return 0, err
+		}
+		sent = append(sent, at)
+	}
+	if err := rows.Err(); err != nil || len(sent) < RateLimit {
+		return 0, err
+	}
+	// The oldest of the last RateLimit sends leaves the window first.
+	return time.UnixMilli(sent[len(sent)-1]).Add(RateWindow).Sub(now), nil
+}
+
+// Later puts a pending message off until at without counting a failure.
+func Later(ctx context.Context, q store.Querier, id string, at time.Time) error {
+	_, err := q.ExecContext(ctx, `UPDATE outbox SET next_at = ? WHERE id = ? AND state = 'pending'`, at.UnixMilli(), id)
 	return err
 }

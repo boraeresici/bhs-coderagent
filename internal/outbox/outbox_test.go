@@ -99,3 +99,50 @@ func TestMarkers(t *testing.T) {
 		t.Fatal("ids that cannot round-trip through a marker must be rejected")
 	}
 }
+
+func TestFailBacksOffAndCounts(t *testing.T) {
+	db := db(t)
+	enqueue(t, db, "ack:t1", "c", 0)
+	for i, wait := range []time.Duration{5 * time.Second, 10 * time.Second, 20 * time.Second} {
+		n, err := Fail(ctx, db, t0, "ack:t1", errors.New("relay down"))
+		if err != nil || n != i+1 {
+			t.Fatalf("fail %d: %d %v", i+1, n, err)
+		}
+		heads, _ := Heads(ctx, db)
+		if len(heads) != 1 || heads[0].Attempts != i+1 || !heads[0].NextAt.Equal(t0.Add(wait)) {
+			t.Fatalf("after %d failures: %+v", i+1, heads)
+		}
+	}
+	if Backoff(20) != 5*time.Minute {
+		t.Errorf("backoff caps at 5m: %v", Backoff(20))
+	}
+	if err := MarkSent(ctx, db, t0, "ack:t1", "r"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Fail(ctx, db, t0, "ack:t1", errors.New("x")); err == nil {
+		t.Error("a sent message cannot fail")
+	}
+}
+
+func TestRateWait(t *testing.T) {
+	db := db(t)
+	for i := range RateLimit + 1 {
+		id := "m" + string(rune('a'+i))
+		enqueue(t, db, id, "c", 0)
+		if i < RateLimit {
+			if err := MarkSent(ctx, db, t0.Add(time.Duration(i)*time.Minute), id, "r"); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	now := t0.Add(9*time.Minute + 30*time.Second)
+	if w, _ := RateWait(ctx, db, now, "c"); w != 30*time.Second {
+		t.Errorf("ten sends in ten minutes: wait %v, want until the first leaves the window", w)
+	}
+	if w, _ := RateWait(ctx, db, now, "other"); w != 0 {
+		t.Errorf("the limit is per conversation: %v", w)
+	}
+	if w, _ := RateWait(ctx, db, t0.Add(10*time.Minute+time.Second), "c"); w != 0 {
+		t.Errorf("after the window: %v", w)
+	}
+}
